@@ -20,7 +20,7 @@ compose.desktop {
         mainClass = "com.example.kmpnativefirst.MainKt"
 
         nativeDistributions {
-            targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
+            targetFormats(TargetFormat.Msi, TargetFormat.Deb)
             packageName = "com.example.kmpnativefirst"
             packageVersion = "1.0.0"
         }

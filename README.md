@@ -1,20 +1,20 @@
-This is a Kotlin Multiplatform project targeting Android, iOS, Web, Desktop (JVM), Server.
+This is a Kotlin Multiplatform project targeting Android, iOS, native macOS, Web, Desktop (JVM for Windows and Linux), and Server.
 
-* [/app/iosApp](./app/iosApp/iosApp) contains an iOS application. Even if you’re sharing your UI with Compose Multiplatform,
-  you need this entry point for your iOS app. This is also where you should add SwiftUI code for your project.
+* [/app/appleApp](./app/appleApp) contains a single Xcode project with separate `iosApp` and `macOSApp` targets.
+  Their native SwiftUI implementations live in [iOS](./app/appleApp/iOS) and [macOS](./app/appleApp/macOS), respectively.
+  Apple-only Swift adapters shared by both targets live in [Shared](./app/appleApp/Shared). Both targets consume the
+  `SharedLogic` Kotlin/Native framework through direct Xcode integration, while AppKit remains available for macOS-specific
+  integrations. Shared Xcode settings, including the bundle identifier and development team placeholder, live in
+  [Base.xcconfig](./app/appleApp/Configuration/Base.xcconfig), while release versions remain independent in the
+  platform-specific configuration files. The native macOS target supports Apple Silicon and macOS 13 or later.
 
 * [/app/sharedLogic](./app/sharedLogic/src) is for the code that will be shared between app targets in the project.
   The most important subfolder is [commonMain](./app/sharedLogic/src/commonMain/kotlin). If preferred, you
   can add code to the platform-specific folders here too.
 
-* [/app/sharedUI](./app/sharedUI/src) is for code that will be shared across your Compose Multiplatform applications.
-  It contains several subfolders:
-  - [commonMain](./app/sharedUI/src/commonMain/kotlin) is for code that’s common for all targets.
-  - Other folders are for Kotlin code that will be compiled for only the platform indicated in the folder name.
-    For example, if you want to use Apple’s CoreCrypto for the iOS part of your Kotlin app,
-    the [iosMain](./app/sharedUI/src/iosMain/kotlin) folder would be the right place for such calls.
-    Similarly, if you want to edit the Desktop (JVM) specific part, the [jvmMain](./app/sharedUI/src/jvmMain/kotlin)
-    folder is the appropriate location.
+* [/app/sharedUI](./app/sharedUI/src) contains UI shared by the Compose Multiplatform applications, currently Android
+  and Desktop (JVM). Its [commonMain](./app/sharedUI/src/commonMain/kotlin) source set contains their shared Compose UI;
+  add platform-specific source sets only when an Android or Desktop implementation needs to differ.
 
 * [/app/webApp](./app/webApp) contains a React web application. It uses the Kotlin/JS library produced
   by the [sharedLogic](./app/sharedLogic) module.
@@ -30,7 +30,7 @@ This is a Kotlin Multiplatform project targeting Android, iOS, Web, Desktop (JVM
 Use the run configurations provided by the run widget in your IDE's toolbar. You can also use these commands and options:
 
 - Android app: `./gradlew :app:androidApp:assembleDebug`
-- Desktop app:
+- Desktop app (Windows and Linux distribution):
   - Hot reload: `./gradlew :app:desktopApp:hotRun --auto`
   - Standard run: `./gradlew :app:desktopApp:run`
 - Server: `./gradlew :server:run`
@@ -42,7 +42,7 @@ Use the run configurations provided by the run widget in your IDE's toolbar. You
      npm install
      npm run start
      ```
-- iOS app: open the [/app/iosApp](./app/iosApp) directory in Xcode and run it from there.
+- Apple apps: open [AppleApps.xcodeproj](./app/appleApp/AppleApps.xcodeproj) in Xcode, then run the `iosApp` or `macOSApp` scheme.
 
 ### Running tests
 
@@ -53,6 +53,7 @@ Use the run button in your IDE's editor gutter, or run tests using Gradle tasks:
 - Server tests: `./gradlew :server:test`
 - Web tests: `./gradlew :app:sharedLogic:jsTest`
 - iOS tests: `./gradlew :app:sharedLogic:iosSimulatorArm64Test`
+- macOS tests: `./gradlew :app:sharedLogic:macosArm64Test`
 
 ---
 
