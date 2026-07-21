@@ -1,0 +1,5 @@
+TEAM_ID =
+
+PRODUCT_NAME = KmpNativeFirstAppTemplate
+PRODUCT_BUNDLE_IDENTIFIER = com.example.kmpnativefirst
+STRING_CATALOG_GENERATE_SYMBOLS = YES
