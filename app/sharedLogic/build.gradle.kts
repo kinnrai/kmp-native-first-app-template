@@ -28,6 +28,10 @@ kotlin {
             target = "es2015"
             optIn.add("kotlin.js.ExperimentalJsExport")
         }
+        compilations["main"].packageJson {
+            name = "shared-logic"
+            customField("private", true)
+        }
     }
     
     android {
@@ -48,7 +52,7 @@ kotlin {
     
     sourceSets {
         commonMain.dependencies {
-            api(project(":core"))
+            implementation(project(":core"))
             // put your Multiplatform dependencies here
         }
         commonTest.dependencies {

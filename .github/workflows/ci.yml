@@ -76,13 +76,13 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Build shared Kotlin/JS library
-        run: ./gradlew --no-daemon --stacktrace :app:sharedLogic:jsBrowserDevelopmentLibraryDistribution
+        run: ./gradlew --no-daemon --stacktrace :app:sharedLogic:jsBrowserProductionLibraryDistribution
 
       - name: Install web dependencies
         run: npm ci
 
       - name: Build web application
-        run: npm run build -w webApp
+        run: npm run build -w web-app
 
   ios:
     name: iOS
