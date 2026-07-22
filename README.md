@@ -12,9 +12,9 @@ This is a Kotlin Multiplatform project targeting Android, iOS, native macOS, Web
   The most important subfolder is [commonMain](./app/sharedLogic/src/commonMain/kotlin). If preferred, you
   can add code to the platform-specific folders here too.
 
-* [/app/sharedUI](./app/sharedUI/src) contains UI shared by the Compose Multiplatform applications, currently Android
-  and Desktop (JVM). Its [commonMain](./app/sharedUI/src/commonMain/kotlin) source set contains their shared Compose UI;
-  add platform-specific source sets only when an Android or Desktop implementation needs to differ.
+* [/app/sharedUI](./app/sharedUI/src) contains reusable UI shared by the Compose Multiplatform applications, currently
+  Android and Desktop (JVM). Each application owns its app shell, theme, and platform behavior in its entry-point module,
+  while [commonMain](./app/sharedUI/src/commonMain/kotlin) contains only the Compose UI they intentionally share.
 
 * [/app/webApp](./app/webApp) contains a React web application. It uses the Kotlin/JS library produced
   by the [sharedLogic](./app/sharedLogic) module.
