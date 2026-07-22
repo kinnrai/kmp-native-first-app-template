@@ -1,0 +1,134 @@
+package com.example.kmpnativefirst.task
+
+import kotlin.time.Clock
+
+class TaskService(
+    private val repository: TaskRepository,
+    private val clock: Clock = Clock.System,
+) {
+    suspend fun list(
+        filter: TaskFilter,
+        query: String?,
+    ): TaskListResponse {
+        val allTasks = repository.list()
+        val normalizedQuery = query?.trim()?.takeIf(String::isNotEmpty)
+        val visibleTasks = allTasks.filter { task ->
+            matchesFilter(task, filter) && matchesQuery(task, normalizedQuery)
+        }
+        return TaskListResponse(
+            items = visibleTasks,
+            activeCount = allTasks.count { !it.isCompleted },
+            completedCount = allTasks.count(Task::isCompleted),
+        )
+    }
+
+    suspend fun find(id: String): Task = repository.find(id)
+        ?: throw TaskNotFoundException(id)
+
+    suspend fun create(request: CreateTaskRequest): Task {
+        val issues = TaskValidator.validateCreate(request.id, request.title, request.notes)
+        if (issues.isNotEmpty()) {
+            throw TaskValidationException(issues)
+        }
+        val input = TaskValidator.normalize(request.title, request.notes)
+        val now = clock.now()
+        val task = Task(
+            id = request.id,
+            title = input.title,
+            notes = input.notes,
+            priority = request.priority,
+            dueAt = request.dueAt,
+            createdAt = now,
+            updatedAt = now,
+            revision = 1,
+        )
+        return when (repository.insert(task)) {
+            is TaskInsertResult.Inserted -> task
+            TaskInsertResult.AlreadyExists -> throw TaskConflictException(task.id)
+        }
+    }
+
+    suspend fun replace(
+        id: String,
+        request: ReplaceTaskRequest,
+    ): Task {
+        validate(request.title, request.notes, request.expectedRevision)
+        val current = repository.find(id) ?: throw TaskNotFoundException(id)
+        val input = TaskValidator.normalize(request.title, request.notes)
+        val replacement = current.copy(
+            title = input.title,
+            notes = input.notes,
+            priority = request.priority,
+            dueAt = request.dueAt,
+            isCompleted = request.isCompleted,
+            updatedAt = clock.now(),
+            revision = request.expectedRevision + 1,
+        )
+        return when (
+            val result = repository.replace(
+                task = replacement,
+                expectedRevision = request.expectedRevision,
+            )
+        ) {
+            is TaskMutationResult.Updated -> result.task
+            TaskMutationResult.NotFound -> throw TaskNotFoundException(id)
+            TaskMutationResult.Conflict -> throw TaskConflictException(id)
+        }
+    }
+
+    suspend fun delete(
+        id: String,
+        expectedRevision: Long,
+    ) {
+        val issues = TaskValidator.validateRevision(expectedRevision)
+        if (issues.isNotEmpty()) {
+            throw TaskValidationException(issues)
+        }
+        when (repository.delete(id, expectedRevision)) {
+            TaskDeleteResult.Deleted -> Unit
+            TaskDeleteResult.NotFound -> throw TaskNotFoundException(id)
+            TaskDeleteResult.Conflict -> throw TaskConflictException(id)
+        }
+    }
+
+    suspend fun clearCompleted(): Int = repository.deleteCompleted()
+
+    private fun validate(
+        title: String,
+        notes: String?,
+        expectedRevision: Long? = null,
+    ) {
+        val issues = TaskValidator.validate(title, notes, expectedRevision)
+        if (issues.isNotEmpty()) {
+            throw TaskValidationException(issues)
+        }
+    }
+
+    private fun matchesFilter(
+        task: Task,
+        filter: TaskFilter,
+    ): Boolean = when (filter) {
+        TaskFilter.ALL -> true
+        TaskFilter.ACTIVE -> !task.isCompleted
+        TaskFilter.COMPLETED -> task.isCompleted
+    }
+
+    private fun matchesQuery(
+        task: Task,
+        query: String?,
+    ): Boolean = query == null ||
+        task.title.contains(query, ignoreCase = true) ||
+        task.notes?.contains(query, ignoreCase = true) == true
+}
+
+class TaskValidationException(
+    val issues: List<TaskValidationIssue>,
+) : IllegalArgumentException("Task validation failed.")
+
+class TaskNotFoundException(
+    val taskId: String,
+) : NoSuchElementException("Task '$taskId' was not found.")
+
+class TaskConflictException(
+    val taskId: String,
+) : IllegalStateException("Task '$taskId' has been modified by another client.")
