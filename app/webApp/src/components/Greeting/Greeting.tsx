@@ -2,11 +2,11 @@ import './Greeting.css';
 
 import { useState } from 'react';
 import { JSLogo } from '../JSLogo/JSLogo.tsx';
-import { Greeting as KotlinGreeting } from 'sharedLogic';
+import { getGreeting } from '../../integrations/sharedLogic.ts';
 import type { AnimationEvent } from 'react';
 
 export function Greeting() {
-  const greeting = new KotlinGreeting();
+  const [greeting] = useState(getGreeting);
   const [isVisible, setIsVisible] = useState<boolean>(false);
   const [isAnimating, setIsAnimating] = useState<boolean>(false);
 
@@ -32,9 +32,12 @@ export function Greeting() {
       </button>
 
       {isVisible && (
-        <div className={isAnimating ? 'greeting-content fade-out' : 'greeting-content'} onAnimationEnd={handleAnimationEnd}>
+        <div
+          className={isAnimating ? 'greeting-content fade-out' : 'greeting-content'}
+          onAnimationEnd={handleAnimationEnd}
+        >
           <JSLogo />
-          <div>React: {greeting.greet()}</div>
+          <div>React: {greeting}</div>
         </div>
       )}
     </div>

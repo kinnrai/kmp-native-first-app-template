@@ -1,14 +1,15 @@
 {
-  "name": "KmpNativeFirstAppTemplate",
+  "name": "kmp-native-first-app-template",
   "version": "1.0.0",
   "private": true,
   "workspaces": [
     "app/webApp",
-    "app/sharedLogic/build/dist/js/developmentLibrary"
+    "app/sharedLogic/build/dist/js/productionLibrary"
   ],
   "scripts": {
-    "build:shared": "./gradlew :app:sharedLogic:jsBrowserDevelopmentLibraryDistribution",
-    "build": "npm run build:shared && npm run build -w webApp",
-    "start": "npm run build:shared && npm run start -w webApp"
+    "build:shared": "./gradlew :app:sharedLogic:jsBrowserProductionLibraryDistribution",
+    "dev": "npm run build:shared && npm run dev -w web-app",
+    "build": "npm run build:shared && npm run build -w web-app",
+    "preview": "npm run preview -w web-app"
   }
 }

@@ -8,5 +8,8 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
   },
-  server: { port: 8080 },
+  server: {
+    port: 5173,
+    strictPort: true,
+  },
 });

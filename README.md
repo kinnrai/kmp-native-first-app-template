@@ -16,8 +16,8 @@ This is a Kotlin Multiplatform project targeting Android, iOS, native macOS, Web
   Android and Desktop (JVM). Each application owns its app shell, theme, and platform behavior in its entry-point module,
   while [commonMain](./app/sharedUI/src/commonMain/kotlin) contains only the Compose UI they intentionally share.
 
-* [/app/webApp](./app/webApp) contains a React web application. It uses the Kotlin/JS library produced
-  by the [sharedLogic](./app/sharedLogic) module.
+* [/app/webApp](./app/webApp) contains a React web application with its own app shell and platform UI. It consumes a
+  TypeScript adapter over the Kotlin/JS API exported by the [sharedLogic](./app/sharedLogic) module.
 
 * [/core](./core/src) is for the code that will be shared between all targets in the project.
   The most important subfolder is [commonMain](./core/src/commonMain/kotlin). If preferred, you
@@ -39,9 +39,10 @@ Use the run configurations provided by the run widget in your IDE's toolbar. You
   2. Build and run the web application:
      ```shell
      npm run build:shared
-     npm install
-     npm run start
+     npm ci
+     npm run dev
      ```
+     The development server is available at `http://localhost:5173`.
 - Apple apps: open [AppleApps.xcodeproj](./app/appleApp/AppleApps.xcodeproj) in Xcode, then run the `iosApp` or `macOSApp` scheme.
 
 ### Running tests

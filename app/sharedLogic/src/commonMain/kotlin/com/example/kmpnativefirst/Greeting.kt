@@ -1,8 +1,5 @@
 package com.example.kmpnativefirst
 
-import kotlin.js.JsExport
-
-@JsExport
 class Greeting {
     private val platform = getPlatform()
 
