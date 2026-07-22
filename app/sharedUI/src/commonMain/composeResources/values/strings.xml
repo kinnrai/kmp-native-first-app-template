@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="toggle_content">点击我！</string>
+    <string name="compose_greeting">Compose: %1$s</string>
+    <string name="expanded">已展开</string>
+    <string name="collapsed">已折叠</string>
+</resources>
