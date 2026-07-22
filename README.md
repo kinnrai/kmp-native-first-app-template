@@ -33,7 +33,10 @@ Use the run configurations provided by the run widget in your IDE's toolbar. You
 - Desktop app (Windows and Linux distribution):
   - Hot reload: `./gradlew :app:desktopApp:hotRun --auto`
   - Standard run: `./gradlew :app:desktopApp:run`
-- Server: `./gradlew :server:run`
+- Server:
+  - Run: `./gradlew :server:run`
+  - Open: `http://localhost:8080`
+  - The server listens on `0.0.0.0:8080` by default; override the bind address with `KTOR_HOST` and `PORT`
 - Web app:
   1. Install [Node.js](https://nodejs.org/en/download) (which includes `npm`)
   2. Build and run the web application:
