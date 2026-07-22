@@ -6,12 +6,13 @@ plugins {
 group = "com.example.kmpnativefirst"
 version = "1.0.0"
 application {
-    mainClass = "com.example.kmpnativefirst.ApplicationKt"
+    mainClass = "io.ktor.server.netty.EngineMain"
 }
 
 dependencies {
-    api(project(":core"))
+    implementation(project(":core"))
     implementation(libs.logback)
+    implementation(libs.ktor.serverConfigYaml)
     implementation(libs.ktor.serverCore)
     implementation(libs.ktor.serverNetty)
     testImplementation(libs.ktor.serverTestHost)

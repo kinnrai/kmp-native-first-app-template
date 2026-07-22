@@ -10,10 +10,10 @@ class ApplicationTest {
 
     @Test
     fun testRoot() = testApplication {
-        application {
-            module()
-        }
+        configure()
+
         val response = client.get("/")
+
         assertEquals(HttpStatusCode.OK, response.status)
         assertEquals("Hello, Ktor!", response.bodyAsText())
     }
