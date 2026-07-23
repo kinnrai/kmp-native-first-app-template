@@ -37,6 +37,9 @@ kotlin {
             implementation(libs.compose.uiTooling)
         }
         commonMain.dependencies {
+            api(project(":app:sharedLogic"))
+            implementation(libs.androidx.lifecycle.runtimeCompose)
+            api(libs.androidx.lifecycle.viewmodelCompose)
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)
             implementation(libs.compose.material3)
@@ -46,6 +49,15 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+        }
+        jvmMain.dependencies {
+            implementation(libs.kotlinx.coroutinesSwing)
+        }
+        jvmTest.dependencies {
+            implementation(compose.desktop.currentOs)
+            implementation(libs.compose.uiTest)
+            implementation(libs.kotlin.testJunit)
+            implementation(libs.kotlinx.coroutinesTest)
         }
     }
 }

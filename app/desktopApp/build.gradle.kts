@@ -18,6 +18,7 @@ dependencies {
     implementation(libs.kotlinx.coroutinesSwing)
 
     implementation(libs.compose.uiToolingPreview)
+    testImplementation(libs.kotlin.testJunit)
 }
 
 compose.desktop {

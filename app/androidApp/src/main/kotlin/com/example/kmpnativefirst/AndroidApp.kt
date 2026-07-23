@@ -1,35 +1,35 @@
 package com.example.kmpnativefirst
 
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import com.example.kmpnativefirst.task.data.createTaskRepository
+import com.example.kmpnativefirst.task.ui.TaskApp
+import com.example.kmpnativefirst.task.ui.rememberTaskViewModel
 
 @Composable
 fun AndroidApp() {
-    var showContent by rememberSaveable { mutableStateOf(false) }
-    val greeting = remember { Greeting().greet() }
+    val applicationContext = LocalContext.current.applicationContext
+    val repositoryFactory = remember(applicationContext) {
+        suspend {
+            createTaskRepository(
+                context = applicationContext,
+                baseUrl = BuildConfig.TASK_API_BASE_URL,
+            )
+        }
+    }
+    val viewModel = rememberTaskViewModel(repositoryFactory)
 
     AndroidTheme {
         Surface(
             modifier = Modifier.fillMaxSize(),
-            color = MaterialTheme.colorScheme.primaryContainer,
+            color = MaterialTheme.colorScheme.surface,
         ) {
-            GreetingContent(
-                showContent = showContent,
-                greeting = greeting,
-                onToggleContent = { showContent = !showContent },
-                modifier = Modifier
-                    .fillMaxSize()
-                    .safeDrawingPadding(),
-            )
+            TaskApp(viewModel)
         }
     }
 }
