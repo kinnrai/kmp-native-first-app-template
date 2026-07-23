@@ -47,6 +47,7 @@ jobs:
           :core:testAndroidHostTest
           :app:sharedUI:jvmTest
           :app:sharedLogic:jvmTest
+          :app:sharedLogic:verifySqlDelightMigration
           :core:jvmTest
           :server:test
 
@@ -81,6 +82,7 @@ jobs:
         run: >-
           ./gradlew --no-daemon --stacktrace
           :core:jsBrowserTest
+          :app:sharedLogic:jsBrowserTest
           :app:sharedLogic:jsBrowserProductionLibraryDistribution
 
       - name: Install web dependencies
