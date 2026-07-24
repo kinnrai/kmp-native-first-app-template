@@ -82,8 +82,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.kmpnativefirst.task.Task
 import com.example.kmpnativefirst.task.TaskConstraints
-import com.example.kmpnativefirst.task.TaskFilter
 import com.example.kmpnativefirst.task.TaskPriority
+import com.example.kmpnativefirst.task.TaskSmartView
 import com.example.kmpnativefirst.task.data.TaskConflict
 import com.example.kmpnativefirst.task.data.TaskConflictResolution
 import com.example.kmpnativefirst.task.data.TaskItem
@@ -104,17 +104,18 @@ import kmpnativefirstapptemplate.app.sharedui.generated.resources.delete_task_ti
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.due_date
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.due_value
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.edit_task
-import kmpnativefirstapptemplate.app.sharedui.generated.resources.empty_active_body
-import kmpnativefirstapptemplate.app.sharedui.generated.resources.empty_active_title
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.empty_all_body
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.empty_all_title
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.empty_completed_body
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.empty_completed_title
+import kmpnativefirstapptemplate.app.sharedui.generated.resources.empty_inbox_body
+import kmpnativefirstapptemplate.app.sharedui.generated.resources.empty_inbox_title
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.empty_search_body
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.empty_search_title
-import kmpnativefirstapptemplate.app.sharedui.generated.resources.filter_active
-import kmpnativefirstapptemplate.app.sharedui.generated.resources.filter_all
-import kmpnativefirstapptemplate.app.sharedui.generated.resources.filter_completed
+import kmpnativefirstapptemplate.app.sharedui.generated.resources.empty_today_body
+import kmpnativefirstapptemplate.app.sharedui.generated.resources.empty_today_title
+import kmpnativefirstapptemplate.app.sharedui.generated.resources.empty_upcoming_body
+import kmpnativefirstapptemplate.app.sharedui.generated.resources.empty_upcoming_title
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.initialization_failed
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.keep_this_device
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.mark_completed
@@ -151,15 +152,24 @@ import kmpnativefirstapptemplate.app.sharedui.generated.resources.tasks_summary
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.tasks_title
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.this_device
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.use_service
+import kmpnativefirstapptemplate.app.sharedui.generated.resources.view_all
+import kmpnativefirstapptemplate.app.sharedui.generated.resources.view_completed
+import kmpnativefirstapptemplate.app.sharedui.generated.resources.view_inbox
+import kmpnativefirstapptemplate.app.sharedui.generated.resources.view_today
+import kmpnativefirstapptemplate.app.sharedui.generated.resources.view_upcoming
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.atStartOfDayIn
+import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Instant
 
 @Composable
 fun rememberTaskViewModel(
     repositoryFactory: suspend () -> TaskRepository,
 ): TaskViewModel = viewModel {
-    TaskViewModel(repositoryFactory)
+    TaskViewModel(repositoryFactory = repositoryFactory)
 }
 
 @Composable
@@ -175,7 +185,7 @@ fun TaskApp(
         TaskScreenActions(
             retryInitialization = viewModel::retryInitialization,
             changeSearchQuery = viewModel::setSearchQuery,
-            changeFilter = viewModel::setFilter,
+            changeView = viewModel::setView,
             createTask = viewModel::showCreateEditor,
             editTask = viewModel::showEditEditor,
             toggleCompleted = viewModel::toggleCompleted,
@@ -193,7 +203,7 @@ fun TaskApp(
             changeEditorTitle = viewModel::setEditorTitle,
             changeEditorNotes = viewModel::setEditorNotes,
             changeEditorPriority = viewModel::setEditorPriority,
-            changeEditorDueAt = viewModel::setEditorDueAt,
+            changeEditorDueDate = viewModel::setEditorDueDate,
             changeEditorCompleted = viewModel::setEditorCompleted,
             saveEditor = viewModel::saveEditor,
         )
@@ -294,7 +304,7 @@ internal fun TaskScreen(
                     state = state,
                     onRetryInitialization = actions.retryInitialization,
                     onSearchQueryChange = actions.changeSearchQuery,
-                    onFilterChange = actions.changeFilter,
+                    onViewChange = actions.changeView,
                     onEditTask = actions.editTask,
                     onToggleCompleted = actions.toggleCompleted,
                     onRequestDelete = actions.requestDelete,
@@ -321,7 +331,7 @@ internal fun TaskScreen(
                                 onTitleChange = actions.changeEditorTitle,
                                 onNotesChange = actions.changeEditorNotes,
                                 onPriorityChange = actions.changeEditorPriority,
-                                onDueAtChange = actions.changeEditorDueAt,
+                                onDueDateChange = actions.changeEditorDueDate,
                                 onCompletedChange = actions.changeEditorCompleted,
                                 onSave = actions.saveEditor,
                                 onDelete = {
@@ -341,7 +351,7 @@ internal fun TaskScreen(
                     onTitleChange = actions.changeEditorTitle,
                     onNotesChange = actions.changeEditorNotes,
                     onPriorityChange = actions.changeEditorPriority,
-                    onDueAtChange = actions.changeEditorDueAt,
+                    onDueDateChange = actions.changeEditorDueDate,
                     onCompletedChange = actions.changeEditorCompleted,
                     onSave = actions.saveEditor,
                     onDelete = {
@@ -409,7 +419,7 @@ private fun TaskListPane(
     state: TaskUiState,
     onRetryInitialization: () -> Unit,
     onSearchQueryChange: (String) -> Unit,
-    onFilterChange: (TaskFilter) -> Unit,
+    onViewChange: (TaskSmartView) -> Unit,
     onEditTask: (String) -> Unit,
     onToggleCompleted: (String) -> Unit,
     onRequestDelete: (String) -> Unit,
@@ -443,17 +453,19 @@ private fun TaskListPane(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TaskFilter.entries.forEach { filter ->
+            TaskSmartView.entries.forEach { view ->
                 ElevatedFilterChip(
-                    selected = state.filter == filter,
-                    onClick = { onFilterChange(filter) },
+                    selected = state.view == view,
+                    onClick = { onViewChange(view) },
                     label = {
                         Text(
                             stringResource(
-                                when (filter) {
-                                    TaskFilter.ALL -> Res.string.filter_all
-                                    TaskFilter.ACTIVE -> Res.string.filter_active
-                                    TaskFilter.COMPLETED -> Res.string.filter_completed
+                                when (view) {
+                                    TaskSmartView.ALL -> Res.string.view_all
+                                    TaskSmartView.INBOX -> Res.string.view_inbox
+                                    TaskSmartView.TODAY -> Res.string.view_today
+                                    TaskSmartView.UPCOMING -> Res.string.view_upcoming
+                                    TaskSmartView.COMPLETED -> Res.string.view_completed
                                 },
                             ),
                         )
@@ -485,7 +497,7 @@ private fun TaskListPane(
 
             state.tasks.isEmpty() -> {
                 EmptyTasks(
-                    filter = state.filter,
+                    view = state.view,
                     hasSearchQuery = state.searchQuery.isNotBlank(),
                 )
             }
@@ -684,9 +696,9 @@ private fun TaskSupportingText(item: TaskItem) {
                     style = MaterialTheme.typography.labelMedium,
                 )
             }
-            task.dueAt?.let {
+            (task.dueDate ?: task.dueAt?.localDate())?.let {
                 Text(
-                    stringResource(Res.string.due_value, it.dateLabel()),
+                    stringResource(Res.string.due_value, it),
                     style = MaterialTheme.typography.labelMedium,
                 )
             }
@@ -737,7 +749,7 @@ private fun InitializationError(onRetry: () -> Unit) {
 
 @Composable
 private fun EmptyTasks(
-    filter: TaskFilter,
+    view: TaskSmartView,
     hasSearchQuery: Boolean,
 ) {
     val title: StringResource
@@ -746,18 +758,28 @@ private fun EmptyTasks(
         title = Res.string.empty_search_title
         body = Res.string.empty_search_body
     } else {
-        when (filter) {
-            TaskFilter.ALL -> {
+        when (view) {
+            TaskSmartView.ALL -> {
                 title = Res.string.empty_all_title
                 body = Res.string.empty_all_body
             }
 
-            TaskFilter.ACTIVE -> {
-                title = Res.string.empty_active_title
-                body = Res.string.empty_active_body
+            TaskSmartView.INBOX -> {
+                title = Res.string.empty_inbox_title
+                body = Res.string.empty_inbox_body
             }
 
-            TaskFilter.COMPLETED -> {
+            TaskSmartView.TODAY -> {
+                title = Res.string.empty_today_title
+                body = Res.string.empty_today_body
+            }
+
+            TaskSmartView.UPCOMING -> {
+                title = Res.string.empty_upcoming_title
+                body = Res.string.empty_upcoming_body
+            }
+
+            TaskSmartView.COMPLETED -> {
                 title = Res.string.empty_completed_title
                 body = Res.string.empty_completed_body
             }
@@ -792,7 +814,7 @@ private fun TaskEditorDialog(
     onTitleChange: (String) -> Unit,
     onNotesChange: (String) -> Unit,
     onPriorityChange: (TaskPriority) -> Unit,
-    onDueAtChange: (Instant?) -> Unit,
+    onDueDateChange: (LocalDate?) -> Unit,
     onCompletedChange: (Boolean) -> Unit,
     onSave: () -> Unit,
     onDelete: () -> Unit,
@@ -813,7 +835,7 @@ private fun TaskEditorDialog(
                 onTitleChange = onTitleChange,
                 onNotesChange = onNotesChange,
                 onPriorityChange = onPriorityChange,
-                onDueAtChange = onDueAtChange,
+                onDueDateChange = onDueDateChange,
                 onCompletedChange = onCompletedChange,
                 onSave = onSave,
                 onDelete = onDelete,
@@ -830,13 +852,13 @@ private fun TaskEditor(
     onTitleChange: (String) -> Unit,
     onNotesChange: (String) -> Unit,
     onPriorityChange: (TaskPriority) -> Unit,
-    onDueAtChange: (Instant?) -> Unit,
+    onDueDateChange: (LocalDate?) -> Unit,
     onCompletedChange: (Boolean) -> Unit,
     onSave: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var showDatePicker by remember(editor.taskId, editor.dueAt) {
+    var showDatePicker by remember(editor.taskId, editor.dueDate) {
         mutableStateOf(false)
     }
 
@@ -926,13 +948,13 @@ private fun TaskEditor(
         ) {
             OutlinedButton(onClick = { showDatePicker = true }) {
                 Text(
-                    editor.dueAt?.let {
-                        stringResource(Res.string.due_value, it.dateLabel())
+                    editor.dueDate?.let {
+                        stringResource(Res.string.due_value, it)
                     } ?: stringResource(Res.string.due_date),
                 )
             }
-            if (editor.dueAt != null) {
-                TextButton(onClick = { onDueAtChange(null) }) {
+            if (editor.dueDate != null) {
+                TextButton(onClick = { onDueDateChange(null) }) {
                     Text(stringResource(Res.string.remove_due_date))
                 }
             }
@@ -999,7 +1021,9 @@ private fun TaskEditor(
 
     if (showDatePicker) {
         val pickerState = rememberDatePickerState(
-            initialSelectedDateMillis = editor.dueAt?.toEpochMilliseconds(),
+            initialSelectedDateMillis = editor.dueDate
+                ?.atStartOfDayIn(TimeZone.UTC)
+                ?.toEpochMilliseconds(),
         )
         DatePickerDialog(
             onDismissRequest = { showDatePicker = false },
@@ -1007,7 +1031,11 @@ private fun TaskEditor(
                 TextButton(
                     onClick = {
                         pickerState.selectedDateMillis?.let {
-                            onDueAtChange(Instant.fromEpochMilliseconds(it))
+                            onDueDateChange(
+                                Instant.fromEpochMilliseconds(it)
+                                    .toLocalDateTime(TimeZone.UTC)
+                                    .date,
+                            )
                         }
                         showDatePicker = false
                     },
@@ -1134,7 +1162,8 @@ private fun TaskPriority.labelColor(): Color = when (this) {
     TaskPriority.HIGH -> MaterialTheme.colorScheme.error
 }
 
-private fun Instant.dateLabel(): String = toString().substringBefore('T')
+private fun Instant.localDate(): LocalDate =
+    toLocalDateTime(TimeZone.currentSystemDefault()).date
 
 internal object TaskUiTags {
     const val ROOT = "tasks-root"
@@ -1162,7 +1191,7 @@ private fun TaskScreenPreview() {
                             title = "Review the platform release checklist",
                             notes = "Verify Android, Desktop, iOS, macOS and Web.",
                             priority = TaskPriority.HIGH,
-                            dueAt = Instant.parse("2026-07-25T00:00:00Z"),
+                            dueDate = LocalDate(2026, 7, 25),
                             createdAt = now,
                             updatedAt = now,
                             revision = 1,

@@ -1,16 +1,16 @@
 package com.example.kmpnativefirst.task.ui
 
 import androidx.compose.runtime.Stable
-import com.example.kmpnativefirst.task.TaskFilter
 import com.example.kmpnativefirst.task.TaskPriority
+import com.example.kmpnativefirst.task.TaskSmartView
 import com.example.kmpnativefirst.task.data.TaskConflictResolution
-import kotlin.time.Instant
+import kotlinx.datetime.LocalDate
 
 @Stable
 internal class TaskScreenActions(
     val retryInitialization: () -> Unit = {},
     val changeSearchQuery: (String) -> Unit = {},
-    val changeFilter: (TaskFilter) -> Unit = {},
+    val changeView: (TaskSmartView) -> Unit = {},
     val createTask: () -> Unit = {},
     val editTask: (String) -> Unit = {},
     val toggleCompleted: (String) -> Unit = {},
@@ -28,7 +28,7 @@ internal class TaskScreenActions(
     val changeEditorTitle: (String) -> Unit = {},
     val changeEditorNotes: (String) -> Unit = {},
     val changeEditorPriority: (TaskPriority) -> Unit = {},
-    val changeEditorDueAt: (Instant?) -> Unit = {},
+    val changeEditorDueDate: (LocalDate?) -> Unit = {},
     val changeEditorCompleted: (Boolean) -> Unit = {},
     val saveEditor: () -> Unit = {},
 )

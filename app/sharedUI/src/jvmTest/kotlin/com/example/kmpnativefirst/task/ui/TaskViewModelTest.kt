@@ -2,8 +2,8 @@ package com.example.kmpnativefirst.task.ui
 
 import androidx.lifecycle.viewModelScope
 import com.example.kmpnativefirst.task.Task
-import com.example.kmpnativefirst.task.TaskFilter
 import com.example.kmpnativefirst.task.TaskPriority
+import com.example.kmpnativefirst.task.TaskSmartView
 import com.example.kmpnativefirst.task.data.TaskConflict
 import com.example.kmpnativefirst.task.data.TaskConflictField
 import com.example.kmpnativefirst.task.data.TaskConflictResolution
@@ -27,6 +27,8 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.TimeZone
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -53,35 +55,51 @@ class TaskViewModelTest {
     }
 
     @Test
-    fun initializesSynchronizesAndProjectsSearchAndFilters() = runTest(dispatcher) {
+    fun initializesSynchronizesAndProjectsSearchAndSmartViews() = runTest(dispatcher) {
         val repository = FakeTaskRepository(
             initialTasks = listOf(
                 taskItem("one", "Book the venue"),
                 taskItem("two", "Publish notes", isCompleted = true),
-                taskItem("three", "Prepare release notes"),
+                taskItem(
+                    "three",
+                    "Prepare release notes",
+                    dueDate = LocalDate(2026, 7, 24),
+                ),
+                taskItem(
+                    "four",
+                    "Plan next release",
+                    dueDate = LocalDate(2026, 7, 25),
+                ),
             ),
         )
-        val viewModel = TaskViewModel { repository }
+        val viewModel = taskViewModel(repository)
 
         advanceUntilIdle()
 
         assertFalse(viewModel.uiState.value.isInitializing)
         assertEquals(1, repository.syncCalls)
-        assertEquals(2, viewModel.uiState.value.activeCount)
+        assertEquals(3, viewModel.uiState.value.activeCount)
         assertEquals(1, viewModel.uiState.value.completedCount)
+        assertEquals(listOf("one"), viewModel.uiState.value.tasks.map { it.task.id })
 
-        viewModel.setFilter(TaskFilter.ACTIVE)
+        viewModel.setView(TaskSmartView.TODAY)
         viewModel.setSearchQuery("release")
         advanceUntilIdle()
 
         assertEquals(listOf("three"), viewModel.uiState.value.tasks.map { it.task.id })
+
+        viewModel.setSearchQuery("")
+        viewModel.setView(TaskSmartView.UPCOMING)
+        advanceUntilIdle()
+
+        assertEquals(listOf("four"), viewModel.uiState.value.tasks.map { it.task.id })
         viewModel.viewModelScope.cancel()
     }
 
     @Test
     fun editorValidatesCreatesAndUpdatesTasks() = runTest(dispatcher) {
         val repository = FakeTaskRepository()
-        val viewModel = TaskViewModel { repository }
+        val viewModel = taskViewModel(repository)
         advanceUntilIdle()
 
         viewModel.showCreateEditor()
@@ -91,6 +109,7 @@ class TaskViewModelTest {
         viewModel.setEditorTitle("Ship Android UI")
         viewModel.setEditorNotes("Verify edge-to-edge behavior")
         viewModel.setEditorPriority(TaskPriority.HIGH)
+        viewModel.setEditorDueDate(LocalDate(2026, 7, 25))
         viewModel.saveEditor()
         advanceUntilIdle()
 
@@ -98,6 +117,7 @@ class TaskViewModelTest {
         val created = repository.tasks.value.single().task
         assertEquals("Ship Android UI", created.title)
         assertEquals(TaskPriority.HIGH, created.priority)
+        assertEquals(LocalDate(2026, 7, 25), created.dueDate)
 
         viewModel.showEditEditor(created.id)
         viewModel.setEditorTitle("Ship Compose UI")
@@ -107,6 +127,43 @@ class TaskViewModelTest {
 
         assertEquals("Ship Compose UI", repository.tasks.value.single().task.title)
         assertTrue(repository.tasks.value.single().task.isCompleted)
+        viewModel.viewModelScope.cancel()
+    }
+
+    @Test
+    fun preservesPreciseDeadlinesUntilTheCalendarDateIsChanged() = runTest(dispatcher) {
+        val preciseDeadline = Instant.parse("2026-07-24T09:30:00Z")
+        val repository = FakeTaskRepository(
+            initialTasks = listOf(
+                taskItem(
+                    id = "precise",
+                    title = "Join the call",
+                    dueAt = preciseDeadline,
+                ),
+            ),
+        )
+        val viewModel = taskViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.showEditEditor("precise")
+        assertEquals(LocalDate(2026, 7, 24), viewModel.uiState.value.editor?.dueDate)
+        assertEquals(preciseDeadline, viewModel.uiState.value.editor?.dueAt)
+
+        viewModel.setEditorTitle("Join the planning call")
+        viewModel.saveEditor()
+        advanceUntilIdle()
+        assertEquals(preciseDeadline, repository.tasks.value.single().task.dueAt)
+        assertNull(repository.tasks.value.single().task.dueDate)
+
+        viewModel.showEditEditor("precise")
+        viewModel.setEditorDueDate(LocalDate(2026, 7, 26))
+        viewModel.saveEditor()
+        advanceUntilIdle()
+        assertNull(repository.tasks.value.single().task.dueAt)
+        assertEquals(
+            LocalDate(2026, 7, 26),
+            repository.tasks.value.single().task.dueDate,
+        )
         viewModel.viewModelScope.cancel()
     }
 
@@ -130,7 +187,7 @@ class TaskViewModelTest {
                 ),
             ),
         )
-        val viewModel = TaskViewModel { repository }
+        val viewModel = taskViewModel(repository)
         advanceUntilIdle()
 
         viewModel.requestDelete("active")
@@ -164,7 +221,10 @@ class TaskViewModelTest {
             ),
         )
         var attempts = 0
-        val viewModel = TaskViewModel {
+        val viewModel = TaskViewModel(
+            timeZone = TimeZone.UTC,
+            todayProvider = { TODAY },
+        ) {
             attempts += 1
             if (attempts == 1) error("database locked")
             repository
@@ -217,6 +277,7 @@ private class FakeTaskRepository(
             title = draft.title,
             notes = draft.notes,
             priority = draft.priority,
+            dueDate = draft.dueDate,
             dueAt = draft.dueAt,
         )
         mutableTasks.value += TaskItem(created, TaskSyncState.PENDING)
@@ -229,6 +290,7 @@ private class FakeTaskRepository(
             title = edit.title,
             notes = edit.notes,
             priority = edit.priority,
+            dueDate = edit.dueDate,
             dueAt = edit.dueAt,
             isCompleted = edit.isCompleted,
             updatedAt = NOW,
@@ -251,6 +313,7 @@ private class FakeTaskRepository(
                 title = current.title,
                 notes = current.notes,
                 priority = current.priority,
+                dueDate = current.dueDate,
                 dueAt = current.dueAt,
                 isCompleted = !current.isCompleted,
             ),
@@ -277,6 +340,7 @@ private class FakeTaskRepository(
                 title = resolution.edit.title,
                 notes = resolution.edit.notes,
                 priority = resolution.edit.priority,
+                dueDate = resolution.edit.dueDate,
                 dueAt = resolution.edit.dueAt,
                 isCompleted = resolution.edit.isCompleted,
             )
@@ -302,14 +366,30 @@ private class FakeTaskRepository(
 }
 
 private val NOW = Instant.parse("2026-07-23T08:00:00Z")
+private val TODAY = LocalDate(2026, 7, 24)
+
+private fun taskViewModel(repository: TaskRepository): TaskViewModel = TaskViewModel(
+    timeZone = TimeZone.UTC,
+    todayProvider = { TODAY },
+) {
+    repository
+}
 
 private fun taskItem(
     id: String,
     title: String,
+    dueDate: LocalDate? = null,
+    dueAt: Instant? = null,
     isCompleted: Boolean = false,
     syncState: TaskSyncState = TaskSyncState.SYNCED,
 ): TaskItem = TaskItem(
-    task = task(id, title, isCompleted = isCompleted),
+    task = task(
+        id = id,
+        title = title,
+        dueDate = dueDate,
+        dueAt = dueAt,
+        isCompleted = isCompleted,
+    ),
     syncState = syncState,
 )
 
@@ -318,6 +398,7 @@ private fun task(
     title: String,
     notes: String? = null,
     priority: TaskPriority = TaskPriority.NONE,
+    dueDate: LocalDate? = null,
     dueAt: Instant? = null,
     isCompleted: Boolean = false,
 ): Task = Task(
@@ -325,6 +406,7 @@ private fun task(
     title = title,
     notes = notes,
     priority = priority,
+    dueDate = dueDate,
     dueAt = dueAt,
     isCompleted = isCompleted,
     createdAt = NOW,
