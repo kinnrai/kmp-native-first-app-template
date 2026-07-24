@@ -174,6 +174,9 @@ private class RecordingTaskRepository : TaskRepository {
 
     override val tasks: Flow<List<TaskItem>> = taskItems
     override val conflicts: Flow<List<TaskConflict>> = taskConflicts
+    override val projects = MutableStateFlow<List<TaskProjectItem>>(emptyList())
+    override val projectConflicts =
+        MutableStateFlow<List<TaskProjectConflict>>(emptyList())
     override val syncStatus: StateFlow<TaskSyncStatus> = status
 
     override suspend fun create(draft: TaskDraft): Task {
@@ -202,6 +205,22 @@ private class RecordingTaskRepository : TaskRepository {
     ) {
         this.resolution = resolution
     }
+
+    override suspend fun createProject(draft: TaskProjectDraft) =
+        error("Project operations are outside this Apple task-store test.")
+
+    override suspend fun updateProject(
+        projectId: String,
+        edit: TaskProjectEdit,
+    ) = error("Project operations are outside this Apple task-store test.")
+
+    override suspend fun deleteProject(projectId: String) =
+        error("Project operations are outside this Apple task-store test.")
+
+    override suspend fun resolveProjectConflict(
+        projectId: String,
+        resolution: TaskProjectConflictResolution,
+    ) = error("Project operations are outside this Apple task-store test.")
 
     override suspend fun sync(): TaskSyncResult =
         TaskSyncResult.Success(

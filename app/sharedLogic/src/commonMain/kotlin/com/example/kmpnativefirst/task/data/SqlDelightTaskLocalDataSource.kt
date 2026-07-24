@@ -3,9 +3,14 @@ package com.example.kmpnativefirst.task.data
 import app.cash.sqldelight.db.SqlDriver
 import com.example.kmpnativefirst.task.Task
 import com.example.kmpnativefirst.task.TaskPriority
+import com.example.kmpnativefirst.task.TaskProject
+import com.example.kmpnativefirst.task.TaskProjectColor
 import com.example.kmpnativefirst.task.data.local.CachedTask
+import com.example.kmpnativefirst.task.data.local.CachedTaskProject
 import com.example.kmpnativefirst.task.data.local.TaskConflict as DatabaseTaskConflict
 import com.example.kmpnativefirst.task.data.local.TaskOutbox
+import com.example.kmpnativefirst.task.data.local.TaskProjectConflict as DatabaseTaskProjectConflict
+import com.example.kmpnativefirst.task.data.local.TaskProjectOutbox
 import com.example.kmpnativefirst.task.data.local.db.TaskDatabase
 import kotlinx.datetime.LocalDate
 import kotlinx.coroutines.CancellationException
@@ -26,9 +31,12 @@ internal suspend fun createPersistentTaskRepository(
     driver: SqlDriver,
     baseUrl: String,
 ): TaskRepository = try {
+    val local = SqlDelightTaskLocalDataSource(driver)
     OfflineFirstTaskRepository(
-        local = SqlDelightTaskLocalDataSource(driver),
+        local = local,
         remote = KtorTaskRemoteDataSource(baseUrl),
+        projectLocal = local,
+        projectRemote = KtorTaskProjectRemoteDataSource(baseUrl),
     ).initialize()
 } catch (error: Throwable) {
     driver.close()
@@ -38,16 +46,23 @@ internal suspend fun createPersistentTaskRepository(
 internal class SqlDelightTaskLocalDataSource(
     private val driver: SqlDriver,
     private val dispatcher: CoroutineDispatcher = taskDatabaseDispatcher(),
-) : TaskLocalDataSource {
+) : TaskLocalDataSource, TaskProjectLocalDataSource {
     private val database = createTaskDatabase(driver)
     private val queries = database.taskCacheQueries
     private val mutex = Mutex()
     private val taskFlow = MutableStateFlow(loadVisibleTasks())
     private val conflictFlow = MutableStateFlow(loadConflicts())
+    private val projectFlow = MutableStateFlow(loadVisibleProjects())
+    private val projectConflictFlow = MutableStateFlow(loadProjectConflicts())
 
     override fun observeTasks(): Flow<List<TaskItem>> = taskFlow.asStateFlow()
 
     override fun observeConflicts(): Flow<List<TaskConflict>> = conflictFlow.asStateFlow()
+
+    override fun observeProjects(): Flow<List<TaskProjectItem>> = projectFlow.asStateFlow()
+
+    override fun observeProjectConflicts(): Flow<List<TaskProjectConflict>> =
+        projectConflictFlow.asStateFlow()
 
     override suspend fun findTask(id: String): TaskItem? = read {
         queries.selectTaskById(id)
@@ -62,6 +77,21 @@ internal class SqlDelightTaskLocalDataSource(
 
     override suspend fun conflictCount(): Int = read {
         queries.countConflicts().executeAsOne().toInt()
+    }
+
+    override suspend fun findProject(id: String): TaskProjectItem? = read {
+        queries.selectProjectById(id)
+            .executeAsOneOrNull()
+            ?.takeUnless(CachedTaskProject::isDeleted)
+            ?.toProjectItem()
+    }
+
+    override suspend fun pendingProjectCount(): Int = read {
+        queries.countProjectOutbox().executeAsOne().toInt()
+    }
+
+    override suspend fun projectConflictCount(): Int = read {
+        queries.countProjectConflicts().executeAsOne().toInt()
     }
 
     override suspend fun applyCreate(
@@ -90,35 +120,7 @@ internal class SqlDelightTaskLocalDataSource(
         operationId: String,
         enqueuedAt: Instant,
     ) = mutate {
-        val current = queries.selectTaskById(task.id)
-            .executeAsOneOrNull()
-            ?.takeUnless(CachedTask::isDeleted)
-            ?: throw CachedTaskNotFoundException(task.id)
-        if (current.syncState == TaskSyncState.CONFLICT.name) {
-            throw UnresolvedTaskConflictException(task.id)
-        }
-        val currentMutation = mutationForTask(task.id)
-        upsertTask(task, TaskSyncState.PENDING, isDeleted = false)
-        upsertMutation(
-            when (currentMutation?.kind) {
-                TaskMutationKind.CREATE,
-                TaskMutationKind.UPDATE,
-                -> currentMutation.copy(
-                    operationId = operationId,
-                    desired = task,
-                    enqueuedAt = enqueuedAt,
-                )
-                TaskMutationKind.DELETE -> throw InvalidCachedTaskStateException(task.id)
-                null -> PendingTaskMutation(
-                    operationId = operationId,
-                    taskId = task.id,
-                    kind = TaskMutationKind.UPDATE,
-                    base = current.toTask(),
-                    desired = task,
-                    enqueuedAt = enqueuedAt,
-                )
-            },
-        )
+        applyTaskUpdateLocked(task, operationId, enqueuedAt)
     }
 
     override suspend fun applyDelete(
@@ -324,6 +326,280 @@ internal class SqlDelightTaskLocalDataSource(
         queries.deleteConflictByTaskId(taskId)
     }
 
+    override suspend fun applyProjectCreate(
+        project: TaskProject,
+        operationId: String,
+        enqueuedAt: Instant,
+    ) = mutate {
+        if (queries.selectProjectById(project.id).executeAsOneOrNull() != null) {
+            throw DuplicateCachedTaskProjectException(project.id)
+        }
+        upsertProject(project, TaskSyncState.PENDING, isDeleted = false)
+        upsertProjectMutation(
+            PendingTaskProjectMutation(
+                operationId = operationId,
+                projectId = project.id,
+                kind = TaskMutationKind.CREATE,
+                base = null,
+                desired = project,
+                enqueuedAt = enqueuedAt,
+            ),
+        )
+    }
+
+    override suspend fun applyProjectUpdate(
+        project: TaskProject,
+        operationId: String,
+        enqueuedAt: Instant,
+    ) = mutate {
+        applyProjectUpdateLocked(project, operationId, enqueuedAt)
+    }
+
+    override suspend fun applyProjectDelete(
+        projectId: String,
+        operationId: String,
+        taskOperationId: () -> String,
+        enqueuedAt: Instant,
+    ) = mutate {
+        val current = queries.selectProjectById(projectId)
+            .executeAsOneOrNull()
+            ?.takeUnless(CachedTaskProject::isDeleted)
+            ?: throw CachedTaskProjectNotFoundException(projectId)
+        if (current.syncState == TaskSyncState.CONFLICT.name) {
+            throw UnresolvedTaskProjectConflictException(projectId)
+        }
+        queries.selectConflicts()
+            .executeAsList()
+            .map(DatabaseTaskConflict::toDomainConflict)
+            .firstOrNull { conflict -> conflict.referencesProject(projectId) }
+            ?.let { conflict -> throw UnresolvedTaskConflictException(conflict.taskId) }
+        clearProjectReferences(
+            projectIds = setOf(projectId),
+            taskOperationId = taskOperationId,
+            changedAt = enqueuedAt,
+            enqueueSyncedTasks = true,
+        )
+        val currentMutation = mutationForProject(projectId)
+        if (currentMutation?.kind == TaskMutationKind.CREATE) {
+            queries.deleteProjectById(projectId)
+            queries.deleteProjectOutboxByProjectId(projectId)
+            queries.deleteProjectConflictByProjectId(projectId)
+            return@mutate
+        }
+        upsertProject(
+            project = current.toProject(),
+            syncState = TaskSyncState.PENDING,
+            isDeleted = true,
+        )
+        upsertProjectMutation(
+            PendingTaskProjectMutation(
+                operationId = operationId,
+                projectId = projectId,
+                kind = TaskMutationKind.DELETE,
+                base = currentMutation?.base ?: current.toProject(),
+                desired = null,
+                enqueuedAt = enqueuedAt,
+            ),
+        )
+    }
+
+    override suspend fun nextProjectMutation(
+        deletionsOnly: Boolean,
+    ): PendingTaskProjectMutation? = read {
+        if (deletionsOnly) {
+            queries.selectNextProjectDeleteOutbox().executeAsOneOrNull()
+        } else {
+            queries.selectNextProjectUpsertOutbox().executeAsOneOrNull()
+        }?.toProjectMutation()
+    }
+
+    override suspend fun acknowledgeProjectMutation(
+        mutation: PendingTaskProjectMutation,
+        remoteProject: TaskProject,
+    ): Boolean = mutateWithResult {
+        val current = mutationForProject(mutation.projectId)
+            ?: return@mutateWithResult false
+        if (current.operationId == mutation.operationId) {
+            queries.deleteProjectOutboxByProjectId(mutation.projectId)
+            queries.deleteProjectConflictByProjectId(mutation.projectId)
+            upsertProject(remoteProject, TaskSyncState.SYNCED, isDeleted = false)
+            return@mutateWithResult true
+        }
+
+        val rebasedDesired = current.desired?.copy(
+            createdAt = remoteProject.createdAt,
+            revision = remoteProject.revision,
+        )
+        upsertProjectMutation(
+            current.copy(
+                kind = if (current.kind == TaskMutationKind.DELETE) {
+                    TaskMutationKind.DELETE
+                } else {
+                    TaskMutationKind.UPDATE
+                },
+                base = remoteProject,
+                desired = rebasedDesired,
+            ),
+        )
+        upsertProject(
+            project = rebasedDesired ?: remoteProject,
+            syncState = TaskSyncState.PENDING,
+            isDeleted = current.kind == TaskMutationKind.DELETE,
+        )
+        true
+    }
+
+    override suspend fun acknowledgeProjectDelete(
+        mutation: PendingTaskProjectMutation,
+    ): Boolean = mutateWithResult {
+        val current = mutationForProject(mutation.projectId)
+            ?: return@mutateWithResult false
+        if (current.operationId != mutation.operationId) {
+            return@mutateWithResult false
+        }
+        queries.deleteProjectOutboxByProjectId(mutation.projectId)
+        queries.deleteProjectConflictByProjectId(mutation.projectId)
+        queries.deleteProjectById(mutation.projectId)
+        true
+    }
+
+    override suspend fun rebaseProjectMutation(
+        mutation: PendingTaskProjectMutation,
+        remoteBase: TaskProject,
+        mergedProject: TaskProject,
+    ): Boolean = mutateWithResult {
+        val current = mutationForProject(mutation.projectId)
+            ?: return@mutateWithResult false
+        if (current.operationId != mutation.operationId) {
+            return@mutateWithResult false
+        }
+        val desired = mergedProject.copy(
+            createdAt = remoteBase.createdAt,
+            revision = remoteBase.revision,
+        )
+        upsertProjectMutation(
+            current.copy(
+                kind = TaskMutationKind.UPDATE,
+                base = remoteBase,
+                desired = desired,
+            ),
+        )
+        upsertProject(desired, TaskSyncState.PENDING, isDeleted = false)
+        true
+    }
+
+    override suspend fun recordProjectConflict(
+        mutation: PendingTaskProjectMutation,
+        conflict: TaskProjectConflict,
+    ): Boolean = mutateWithResult {
+        val current = mutationForProject(mutation.projectId)
+            ?: return@mutateWithResult false
+        if (current.operationId != mutation.operationId) {
+            return@mutateWithResult false
+        }
+        queries.deleteProjectOutboxByProjectId(mutation.projectId)
+        upsertProjectConflict(conflict)
+        val visibleProject = conflict.local ?: conflict.remote
+        if (visibleProject == null) {
+            queries.deleteProjectById(mutation.projectId)
+        } else {
+            upsertProject(visibleProject, TaskSyncState.CONFLICT, isDeleted = false)
+        }
+        true
+    }
+
+    override suspend fun replaceRemoteProjectSnapshot(
+        remoteProjects: List<TaskProject>,
+        taskOperationId: () -> String,
+        changedAt: Instant,
+    ): Int = mutateWithResult {
+        val remoteById = remoteProjects.associateBy(TaskProject::id)
+        val conflictReferencedIds = queries.selectConflicts()
+            .executeAsList()
+            .map(DatabaseTaskConflict::toDomainConflict)
+            .flatMapTo(mutableSetOf()) { conflict -> conflict.referencedProjectIds() }
+        val mutationProtectedIds = queries.selectAllProjectOutbox()
+            .executeAsList()
+            .mapTo(mutableSetOf(), TaskProjectOutbox::projectId)
+            .apply {
+                addAll(
+                    queries.selectProjectConflicts()
+                        .executeAsList()
+                        .map(DatabaseTaskProjectConflict::projectId),
+                )
+            }
+        val removalProtectedIds = mutationProtectedIds + conflictReferencedIds
+        val removableIds = queries.selectAllProjects()
+            .executeAsList()
+            .asSequence()
+            .filter { project -> project.syncState == TaskSyncState.SYNCED.name }
+            .map(CachedTaskProject::id)
+            .filterNot(remoteById::containsKey)
+            .filterNot(removalProtectedIds::contains)
+            .toSet()
+        clearProjectReferences(
+            projectIds = removableIds,
+            taskOperationId = taskOperationId,
+            changedAt = changedAt,
+            enqueueSyncedTasks = false,
+        )
+        removableIds.forEach(queries::deleteProjectById)
+
+        remoteById.forEach { (id, project) ->
+            if (id !in mutationProtectedIds) {
+                upsertProject(project, TaskSyncState.SYNCED, isDeleted = false)
+            }
+        }
+        remoteProjects.size
+    }
+
+    override suspend fun resolveProjectConflict(
+        projectId: String,
+        resolution: TaskProjectConflictResolution,
+        operationId: String,
+        taskOperationId: () -> String,
+        enqueuedAt: Instant,
+    ) = mutate {
+        val conflict = queries.selectProjectConflictByProjectId(projectId)
+            .executeAsOneOrNull()
+            ?.toDomainProjectConflict()
+            ?: throw CachedTaskProjectNotFoundException(projectId)
+        when (resolution) {
+            TaskProjectConflictResolution.UseRemote -> {
+                queries.deleteProjectOutboxByProjectId(projectId)
+                val remote = conflict.remote
+                if (remote == null) {
+                    clearProjectReferences(
+                        projectIds = setOf(projectId),
+                        taskOperationId = taskOperationId,
+                        changedAt = enqueuedAt,
+                        enqueueSyncedTasks = true,
+                    )
+                    queries.deleteProjectById(projectId)
+                } else {
+                    upsertProject(remote, TaskSyncState.SYNCED, isDeleted = false)
+                }
+            }
+            TaskProjectConflictResolution.KeepLocal -> enqueueProjectResolution(
+                conflict = conflict,
+                desired = conflict.local,
+                operationId = operationId,
+                enqueuedAt = enqueuedAt,
+            )
+            is TaskProjectConflictResolution.Merge -> {
+                val source = conflict.local ?: conflict.remote
+                    ?: throw CachedTaskProjectNotFoundException(projectId)
+                enqueueProjectResolution(
+                    conflict = conflict,
+                    desired = source.withEdit(resolution.edit),
+                    operationId = operationId,
+                    enqueuedAt = enqueuedAt,
+                )
+            }
+        }
+        queries.deleteProjectConflictByProjectId(projectId)
+    }
+
     override fun close() {
         driver.close()
     }
@@ -387,6 +663,178 @@ internal class SqlDelightTaskLocalDataSource(
         }
     }
 
+    private fun enqueueProjectResolution(
+        conflict: TaskProjectConflict,
+        desired: TaskProject?,
+        operationId: String,
+        enqueuedAt: Instant,
+    ) {
+        val remote = conflict.remote
+        when {
+            remote == null && desired == null -> {
+                queries.deleteProjectById(conflict.projectId)
+                queries.deleteProjectOutboxByProjectId(conflict.projectId)
+            }
+            remote == null -> {
+                val create = requireNotNull(desired).copy(revision = 0)
+                upsertProject(create, TaskSyncState.PENDING, isDeleted = false)
+                upsertProjectMutation(
+                    PendingTaskProjectMutation(
+                        operationId,
+                        conflict.projectId,
+                        TaskMutationKind.CREATE,
+                        base = null,
+                        desired = create,
+                        enqueuedAt,
+                    ),
+                )
+            }
+            desired == null -> {
+                upsertProject(remote, TaskSyncState.PENDING, isDeleted = true)
+                upsertProjectMutation(
+                    PendingTaskProjectMutation(
+                        operationId,
+                        conflict.projectId,
+                        TaskMutationKind.DELETE,
+                        base = remote,
+                        desired = null,
+                        enqueuedAt,
+                    ),
+                )
+            }
+            else -> {
+                val update = desired.copy(
+                    createdAt = remote.createdAt,
+                    revision = remote.revision,
+                )
+                upsertProject(update, TaskSyncState.PENDING, isDeleted = false)
+                upsertProjectMutation(
+                    PendingTaskProjectMutation(
+                        operationId,
+                        conflict.projectId,
+                        TaskMutationKind.UPDATE,
+                        base = remote,
+                        desired = update,
+                        enqueuedAt,
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun applyTaskUpdateLocked(
+        task: Task,
+        operationId: String,
+        enqueuedAt: Instant,
+    ) {
+        val current = queries.selectTaskById(task.id)
+            .executeAsOneOrNull()
+            ?.takeUnless(CachedTask::isDeleted)
+            ?: throw CachedTaskNotFoundException(task.id)
+        if (current.syncState == TaskSyncState.CONFLICT.name) {
+            throw UnresolvedTaskConflictException(task.id)
+        }
+        val currentMutation = mutationForTask(task.id)
+        upsertTask(task, TaskSyncState.PENDING, isDeleted = false)
+        when (currentMutation?.kind) {
+            TaskMutationKind.CREATE,
+            TaskMutationKind.UPDATE,
+            -> upsertMutation(
+                currentMutation.copy(
+                    operationId = operationId,
+                    desired = task,
+                    enqueuedAt = enqueuedAt,
+                ),
+            )
+            TaskMutationKind.DELETE -> throw InvalidCachedTaskStateException(task.id)
+            null -> upsertMutation(
+                PendingTaskMutation(
+                    operationId = operationId,
+                    taskId = task.id,
+                    kind = TaskMutationKind.UPDATE,
+                    base = current.toTask(),
+                    desired = task,
+                    enqueuedAt = enqueuedAt,
+                ),
+            )
+        }
+    }
+
+    private fun applyProjectUpdateLocked(
+        project: TaskProject,
+        operationId: String,
+        enqueuedAt: Instant,
+    ) {
+        val current = queries.selectProjectById(project.id)
+            .executeAsOneOrNull()
+            ?.takeUnless(CachedTaskProject::isDeleted)
+            ?: throw CachedTaskProjectNotFoundException(project.id)
+        if (current.syncState == TaskSyncState.CONFLICT.name) {
+            throw UnresolvedTaskProjectConflictException(project.id)
+        }
+        val currentMutation = mutationForProject(project.id)
+        upsertProject(project, TaskSyncState.PENDING, isDeleted = false)
+        when (currentMutation?.kind) {
+            TaskMutationKind.CREATE,
+            TaskMutationKind.UPDATE,
+            -> upsertProjectMutation(
+                currentMutation.copy(
+                    operationId = operationId,
+                    desired = project,
+                    enqueuedAt = enqueuedAt,
+                ),
+            )
+            TaskMutationKind.DELETE ->
+                throw InvalidCachedTaskProjectStateException(project.id)
+            null -> upsertProjectMutation(
+                PendingTaskProjectMutation(
+                    operationId = operationId,
+                    projectId = project.id,
+                    kind = TaskMutationKind.UPDATE,
+                    base = current.toProject(),
+                    desired = project,
+                    enqueuedAt = enqueuedAt,
+                ),
+            )
+        }
+    }
+
+    private fun clearProjectReferences(
+        projectIds: Set<String>,
+        taskOperationId: () -> String,
+        changedAt: Instant,
+        enqueueSyncedTasks: Boolean,
+    ) {
+        if (projectIds.isEmpty()) return
+        queries.selectAllTasks()
+            .executeAsList()
+            .filter { task ->
+                !task.isDeleted && task.projectId in projectIds
+            }
+            .forEach { record ->
+                val updated = record.toTask().copy(
+                    projectId = null,
+                    updatedAt = changedAt,
+                )
+                if (
+                    record.syncState == TaskSyncState.PENDING.name ||
+                    enqueueSyncedTasks
+                ) {
+                    applyTaskUpdateLocked(
+                        task = updated,
+                        operationId = taskOperationId(),
+                        enqueuedAt = changedAt,
+                    )
+                } else {
+                    upsertTask(
+                        task = updated,
+                        syncState = TaskSyncState.valueOf(record.syncState),
+                        isDeleted = false,
+                    )
+                }
+            }
+    }
+
     private suspend fun <T> read(block: () -> T): T = withContext(dispatcher) {
         mutex.withLock {
             storageCall(block)
@@ -410,6 +858,8 @@ internal class SqlDelightTaskLocalDataSource(
     private fun publish() {
         taskFlow.value = loadVisibleTasks()
         conflictFlow.value = loadConflicts()
+        projectFlow.value = loadVisibleProjects()
+        projectConflictFlow.value = loadProjectConflicts()
     }
 
     private fun loadVisibleTasks(): List<TaskItem> =
@@ -422,10 +872,25 @@ internal class SqlDelightTaskLocalDataSource(
             .executeAsList()
             .map(DatabaseTaskConflict::toDomainConflict)
 
+    private fun loadVisibleProjects(): List<TaskProjectItem> =
+        queries.selectVisibleProjects()
+            .executeAsList()
+            .map(CachedTaskProject::toProjectItem)
+
+    private fun loadProjectConflicts(): List<TaskProjectConflict> =
+        queries.selectProjectConflicts()
+            .executeAsList()
+            .map(DatabaseTaskProjectConflict::toDomainProjectConflict)
+
     private fun mutationForTask(taskId: String): PendingTaskMutation? =
         queries.selectOutboxByTaskId(taskId)
             .executeAsOneOrNull()
             ?.toMutation()
+
+    private fun mutationForProject(projectId: String): PendingTaskProjectMutation? =
+        queries.selectProjectOutboxByProjectId(projectId)
+            .executeAsOneOrNull()
+            ?.toProjectMutation()
 
     private fun upsertTask(
         task: Task,
@@ -474,6 +939,51 @@ internal class SqlDelightTaskLocalDataSource(
         )
     }
 
+    private fun upsertProject(
+        project: TaskProject,
+        syncState: TaskSyncState,
+        isDeleted: Boolean,
+    ) {
+        queries.upsertProject(
+            id = project.id,
+            name = project.name,
+            color = project.color.name,
+            createdAtEpochMillis = project.createdAt.toEpochMilliseconds(),
+            updatedAtEpochMillis = project.updatedAt.toEpochMilliseconds(),
+            revision = project.revision,
+            syncState = syncState.name,
+            isDeleted = isDeleted,
+        )
+    }
+
+    private fun upsertProjectMutation(mutation: PendingTaskProjectMutation) {
+        queries.upsertProjectOutbox(
+            operationId = mutation.operationId,
+            projectId = mutation.projectId,
+            kind = mutation.kind.name,
+            baseJson = mutation.base?.let(taskJson::encodeToString),
+            desiredJson = mutation.desired?.let(taskJson::encodeToString),
+            enqueuedAtEpochMillis = mutation.enqueuedAt.toEpochMilliseconds(),
+        )
+    }
+
+    private fun upsertProjectConflict(conflict: TaskProjectConflict) {
+        queries.upsertProjectConflict(
+            projectId = conflict.projectId,
+            kind = conflict.mutationKind.name,
+            baseJson = conflict.base?.let(taskJson::encodeToString),
+            localJson = conflict.local?.let(taskJson::encodeToString),
+            remoteJson = conflict.remote?.let(taskJson::encodeToString),
+            fields = conflict.conflictingFields
+                .sortedBy(TaskProjectConflictField::ordinal)
+                .joinToString(
+                    separator = ",",
+                    transform = TaskProjectConflictField::name,
+                ),
+            detectedAtEpochMillis = conflict.detectedAt.toEpochMilliseconds(),
+        )
+    }
+
     private fun <T> storageCall(block: () -> T): T = try {
         block()
     } catch (cancellation: CancellationException) {
@@ -485,6 +995,14 @@ internal class SqlDelightTaskLocalDataSource(
     } catch (error: DuplicateCachedTaskException) {
         throw error
     } catch (error: InvalidCachedTaskStateException) {
+        throw error
+    } catch (error: CachedTaskProjectNotFoundException) {
+        throw error
+    } catch (error: UnresolvedTaskProjectConflictException) {
+        throw error
+    } catch (error: DuplicateCachedTaskProjectException) {
+        throw error
+    } catch (error: InvalidCachedTaskProjectStateException) {
         throw error
     } catch (error: Throwable) {
         throw TaskLocalStorageException(
@@ -535,6 +1053,44 @@ private fun DatabaseTaskConflict.toDomainConflict(): TaskConflict = TaskConflict
     detectedAt = Instant.fromEpochMilliseconds(detectedAtEpochMillis),
 )
 
+private fun CachedTaskProject.toProject(): TaskProject = TaskProject(
+    id = id,
+    name = name,
+    color = TaskProjectColor.valueOf(color),
+    createdAt = Instant.fromEpochMilliseconds(createdAtEpochMillis),
+    updatedAt = Instant.fromEpochMilliseconds(updatedAtEpochMillis),
+    revision = revision,
+)
+
+private fun CachedTaskProject.toProjectItem(): TaskProjectItem = TaskProjectItem(
+    project = toProject(),
+    syncState = TaskSyncState.valueOf(syncState),
+)
+
+private fun TaskProjectOutbox.toProjectMutation(): PendingTaskProjectMutation =
+    PendingTaskProjectMutation(
+        operationId = operationId,
+        projectId = projectId,
+        kind = TaskMutationKind.valueOf(kind),
+        base = baseJson?.let(taskJson::decodeFromString),
+        desired = desiredJson?.let(taskJson::decodeFromString),
+        enqueuedAt = Instant.fromEpochMilliseconds(enqueuedAtEpochMillis),
+    )
+
+private fun DatabaseTaskProjectConflict.toDomainProjectConflict(): TaskProjectConflict =
+    TaskProjectConflict(
+        projectId = projectId,
+        mutationKind = TaskMutationKind.valueOf(kind),
+        base = baseJson?.let(taskJson::decodeFromString),
+        local = localJson?.let(taskJson::decodeFromString),
+        remote = remoteJson?.let(taskJson::decodeFromString),
+        conflictingFields = fields
+            .split(',')
+            .filter(String::isNotBlank)
+            .mapTo(linkedSetOf(), TaskProjectConflictField::valueOf),
+        detectedAt = Instant.fromEpochMilliseconds(detectedAtEpochMillis),
+    )
+
 private fun Task.withEdit(edit: TaskEdit): Task = copy(
     title = edit.title,
     notes = edit.notes,
@@ -544,3 +1100,17 @@ private fun Task.withEdit(edit: TaskEdit): Task = copy(
     dueAt = edit.dueAt,
     isCompleted = edit.isCompleted,
 )
+
+private fun TaskProject.withEdit(edit: TaskProjectEdit): TaskProject = copy(
+    name = edit.name,
+    color = edit.color,
+)
+
+private fun TaskConflict.referencesProject(projectId: String): Boolean =
+    projectId in referencedProjectIds()
+
+private fun TaskConflict.referencedProjectIds(): Set<String> = buildSet {
+    base?.projectId?.let(::add)
+    local?.projectId?.let(::add)
+    remote?.projectId?.let(::add)
+}

@@ -157,4 +157,74 @@ class InMemoryTaskLocalDataSourceTest {
         assertEquals(0, source.pendingCount())
         assertTrue(source.observeTasks().first().isEmpty())
     }
+
+    @Test
+    fun coalescesProjectCreationAndEditsIntoOneMutation() = runTest {
+        val source = InMemoryTaskLocalDataSource()
+        val project = taskProject(revision = 0)
+
+        source.applyProjectCreate(project, "create-project", TEST_INSTANT)
+        source.applyProjectUpdate(
+            project.copy(name = "Edited offline"),
+            "edit-project",
+            TEST_INSTANT,
+        )
+
+        val mutation = requireNotNull(
+            source.nextProjectMutation(deletionsOnly = false),
+        )
+        assertEquals(TaskMutationKind.CREATE, mutation.kind)
+        assertNull(mutation.base)
+        assertEquals("Edited offline", mutation.desired?.name)
+        assertEquals(1, source.pendingProjectCount())
+    }
+
+    @Test
+    fun deletingAProjectAtomicallyUnassignsItsTasks() = runTest {
+        val project = taskProject()
+        val assigned = task(projectId = project.id)
+        val source = InMemoryTaskLocalDataSource(
+            initialTasks = listOf(assigned),
+            initialProjects = listOf(project),
+        )
+
+        source.applyProjectDelete(
+            projectId = project.id,
+            operationId = "delete-project",
+            taskOperationId = { "unassign-task" },
+            enqueuedAt = TEST_INSTANT,
+        )
+
+        assertNull(source.findProject(project.id))
+        assertNull(source.findTask(assigned.id)?.task?.projectId)
+        assertEquals(TaskMutationKind.UPDATE, source.nextMutation()?.kind)
+        assertEquals(
+            TaskMutationKind.DELETE,
+            source.nextProjectMutation(deletionsOnly = true)?.kind,
+        )
+    }
+
+    @Test
+    fun restoresPersistedProjectsAndProjectMutations() = runTest {
+        var savedState: TaskLocalState? = null
+        val source = InMemoryTaskLocalDataSource(
+            persistState = { savedState = it },
+        )
+        val project = taskProject(revision = 0)
+
+        source.applyProjectCreate(project, "create-project", TEST_INSTANT)
+        val restored = InMemoryTaskLocalDataSource(
+            restoredState = requireNotNull(savedState),
+        )
+
+        assertEquals(project, restored.findProject(project.id)?.project)
+        assertEquals(
+            TaskSyncState.PENDING,
+            restored.findProject(project.id)?.syncState,
+        )
+        assertEquals(
+            "create-project",
+            restored.nextProjectMutation(deletionsOnly = false)?.operationId,
+        )
+    }
 }

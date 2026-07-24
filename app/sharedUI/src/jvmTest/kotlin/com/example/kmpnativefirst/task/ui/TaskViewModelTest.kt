@@ -11,6 +11,11 @@ import com.example.kmpnativefirst.task.data.TaskDraft
 import com.example.kmpnativefirst.task.data.TaskEdit
 import com.example.kmpnativefirst.task.data.TaskItem
 import com.example.kmpnativefirst.task.data.TaskMutationKind
+import com.example.kmpnativefirst.task.data.TaskProjectConflict
+import com.example.kmpnativefirst.task.data.TaskProjectConflictResolution
+import com.example.kmpnativefirst.task.data.TaskProjectDraft
+import com.example.kmpnativefirst.task.data.TaskProjectEdit
+import com.example.kmpnativefirst.task.data.TaskProjectItem
 import com.example.kmpnativefirst.task.data.TaskRepository
 import com.example.kmpnativefirst.task.data.TaskSyncPhase
 import com.example.kmpnativefirst.task.data.TaskSyncResult
@@ -264,6 +269,10 @@ private class FakeTaskRepository(
     private val mutableConflicts = MutableStateFlow(initialConflicts)
     override val conflicts: StateFlow<List<TaskConflict>> = mutableConflicts.asStateFlow()
 
+    override val projects = MutableStateFlow<List<TaskProjectItem>>(emptyList())
+    override val projectConflicts =
+        MutableStateFlow<List<TaskProjectConflict>>(emptyList())
+
     private val mutableSyncStatus = MutableStateFlow(TaskSyncStatus())
     override val syncStatus: StateFlow<TaskSyncStatus> = mutableSyncStatus.asStateFlow()
 
@@ -358,6 +367,22 @@ private class FakeTaskRepository(
             }
         mutableConflicts.value = mutableConflicts.value.filterNot { it.taskId == taskId }
     }
+
+    override suspend fun createProject(draft: TaskProjectDraft) =
+        error("Project operations are outside this task view-model test.")
+
+    override suspend fun updateProject(
+        projectId: String,
+        edit: TaskProjectEdit,
+    ) = error("Project operations are outside this task view-model test.")
+
+    override suspend fun deleteProject(projectId: String) =
+        error("Project operations are outside this task view-model test.")
+
+    override suspend fun resolveProjectConflict(
+        projectId: String,
+        resolution: TaskProjectConflictResolution,
+    ) = error("Project operations are outside this task view-model test.")
 
     override suspend fun sync(): TaskSyncResult {
         syncCalls += 1

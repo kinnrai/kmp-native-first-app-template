@@ -1,6 +1,7 @@
 package com.example.kmpnativefirst.task.data
 
 import com.example.kmpnativefirst.task.Task
+import com.example.kmpnativefirst.task.TaskProject
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlin.experimental.ExperimentalObjCRefinement
@@ -13,6 +14,12 @@ interface TaskRepository {
 
     @HiddenFromObjC
     val conflicts: Flow<List<TaskConflict>>
+
+    @HiddenFromObjC
+    val projects: Flow<List<TaskProjectItem>>
+
+    @HiddenFromObjC
+    val projectConflicts: Flow<List<TaskProjectConflict>>
 
     @HiddenFromObjC
     val syncStatus: StateFlow<TaskSyncStatus>
@@ -39,6 +46,24 @@ interface TaskRepository {
     suspend fun resolveConflict(
         taskId: String,
         resolution: TaskConflictResolution,
+    )
+
+    @Throws(Exception::class)
+    suspend fun createProject(draft: TaskProjectDraft): TaskProject
+
+    @Throws(Exception::class)
+    suspend fun updateProject(
+        projectId: String,
+        edit: TaskProjectEdit,
+    ): TaskProject
+
+    @Throws(Exception::class)
+    suspend fun deleteProject(projectId: String)
+
+    @Throws(Exception::class)
+    suspend fun resolveProjectConflict(
+        projectId: String,
+        resolution: TaskProjectConflictResolution,
     )
 
     @Throws(Exception::class)

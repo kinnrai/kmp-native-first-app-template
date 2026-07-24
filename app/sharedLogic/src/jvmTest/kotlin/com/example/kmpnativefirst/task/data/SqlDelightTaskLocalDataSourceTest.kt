@@ -10,6 +10,7 @@ import java.nio.file.Path
 import java.util.Properties
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SqlDelightTaskLocalDataSourceTest {
@@ -124,6 +125,76 @@ class SqlDelightTaskLocalDataSourceTest {
                 )
                 assertEquals(TaskSyncState.SYNCED, source.findTask(base.id)?.syncState)
                 assertTrue(source.observeConflicts().first().isEmpty())
+            }
+        } finally {
+            Files.deleteIfExists(path)
+            Files.deleteIfExists(Path.of("$path-shm"))
+            Files.deleteIfExists(Path.of("$path-wal"))
+        }
+    }
+
+    @Test
+    fun persistsProjectsAndTheirOutboxAcrossReopen() = runTest {
+        val path = Files.createTempFile("task-project-cache-", ".db")
+        Files.delete(path)
+        try {
+            val project = taskProject(revision = 0)
+            open(path).useSource { source ->
+                source.applyProjectCreate(
+                    project,
+                    operationId = "create-project",
+                    enqueuedAt = TEST_INSTANT,
+                )
+            }
+
+            open(path).useSource { reopened ->
+                assertEquals(project, reopened.findProject(project.id)?.project)
+                assertEquals(
+                    TaskSyncState.PENDING,
+                    reopened.findProject(project.id)?.syncState,
+                )
+                assertEquals(
+                    "create-project",
+                    reopened.nextProjectMutation(false)?.operationId,
+                )
+                assertEquals(1, reopened.pendingProjectCount())
+            }
+        } finally {
+            Files.deleteIfExists(path)
+            Files.deleteIfExists(Path.of("$path-shm"))
+            Files.deleteIfExists(Path.of("$path-wal"))
+        }
+    }
+
+    @Test
+    fun deletesAProjectAndUnassignsTasksInOneDatabaseTransaction() = runTest {
+        val path = Files.createTempFile("task-project-cache-", ".db")
+        Files.delete(path)
+        try {
+            open(path).useSource { source ->
+                val project = taskProject()
+                val assigned = task(projectId = project.id)
+                source.replaceRemoteProjectSnapshot(
+                    listOf(project),
+                    taskOperationId = { "unused" },
+                    changedAt = TEST_INSTANT,
+                )
+                source.replaceRemoteSnapshot(listOf(assigned))
+
+                source.applyProjectDelete(
+                    projectId = project.id,
+                    operationId = "delete-project",
+                    taskOperationId = { "unassign-task" },
+                    enqueuedAt = TEST_INSTANT,
+                )
+
+                assertNull(source.findProject(project.id))
+                assertNull(source.findTask(assigned.id)?.task?.projectId)
+                assertEquals(TaskMutationKind.UPDATE, source.nextMutation()?.kind)
+                assertEquals(
+                    TaskMutationKind.DELETE,
+                    source.nextProjectMutation(true)?.kind,
+                )
             }
         } finally {
             Files.deleteIfExists(path)
