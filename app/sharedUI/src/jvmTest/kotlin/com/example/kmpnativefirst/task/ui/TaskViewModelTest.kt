@@ -3,6 +3,8 @@ package com.example.kmpnativefirst.task.ui
 import androidx.lifecycle.viewModelScope
 import com.example.kmpnativefirst.task.Task
 import com.example.kmpnativefirst.task.TaskPriority
+import com.example.kmpnativefirst.task.TaskProject
+import com.example.kmpnativefirst.task.TaskProjectColor
 import com.example.kmpnativefirst.task.TaskSmartView
 import com.example.kmpnativefirst.task.data.TaskConflict
 import com.example.kmpnativefirst.task.data.TaskConflictField
@@ -12,6 +14,7 @@ import com.example.kmpnativefirst.task.data.TaskEdit
 import com.example.kmpnativefirst.task.data.TaskItem
 import com.example.kmpnativefirst.task.data.TaskMutationKind
 import com.example.kmpnativefirst.task.data.TaskProjectConflict
+import com.example.kmpnativefirst.task.data.TaskProjectConflictField
 import com.example.kmpnativefirst.task.data.TaskProjectConflictResolution
 import com.example.kmpnativefirst.task.data.TaskProjectDraft
 import com.example.kmpnativefirst.task.data.TaskProjectEdit
@@ -132,6 +135,135 @@ class TaskViewModelTest {
 
         assertEquals("Ship Compose UI", repository.tasks.value.single().task.title)
         assertTrue(repository.tasks.value.single().task.isCompleted)
+        viewModel.viewModelScope.cancel()
+    }
+
+    @Test
+    fun selectsProjectsAndCreatesTasksInTheCurrentProject() = runTest(dispatcher) {
+        val work = projectItem("work", "Work", TaskProjectColor.BLUE)
+        val personal = projectItem("personal", "Personal", TaskProjectColor.GREEN)
+        val repository = FakeTaskRepository(
+            initialTasks = listOf(
+                taskItem("work-task", "Prepare launch", projectId = work.project.id),
+                taskItem(
+                    "personal-task",
+                    "Book dinner",
+                    projectId = personal.project.id,
+                ),
+            ),
+            initialProjects = listOf(work, personal),
+        )
+        val viewModel = taskViewModel(repository)
+        advanceUntilIdle()
+
+        assertEquals(1, viewModel.uiState.value.projectTaskCounts["work"])
+        viewModel.setProject("work")
+        advanceUntilIdle()
+
+        assertEquals("work", viewModel.uiState.value.selectedProjectId)
+        assertEquals(
+            listOf("work-task"),
+            viewModel.uiState.value.tasks.map { it.task.id },
+        )
+
+        viewModel.showCreateEditor()
+        assertEquals("work", viewModel.uiState.value.editor?.projectId)
+        viewModel.setEditorTitle("Publish release")
+        viewModel.saveEditor()
+        advanceUntilIdle()
+
+        assertEquals(
+            "work",
+            repository.tasks.value.first {
+                it.task.title == "Publish release"
+            }.task.projectId,
+        )
+
+        viewModel.setView(TaskSmartView.INBOX)
+        advanceUntilIdle()
+        assertNull(viewModel.uiState.value.selectedProjectId)
+        viewModel.viewModelScope.cancel()
+    }
+
+    @Test
+    fun validatesCreatesEditsAndDeletesProjects() = runTest(dispatcher) {
+        val repository = FakeTaskRepository()
+        val viewModel = taskViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.showCreateProjectEditor()
+        viewModel.saveProject()
+        assertTrue(viewModel.uiState.value.projectEditor?.showValidationErrors == true)
+
+        viewModel.setProjectName("  Product  ")
+        viewModel.setProjectColor(TaskProjectColor.PURPLE)
+        viewModel.saveProject()
+        advanceUntilIdle()
+
+        val created = repository.projects.value.single().project
+        assertEquals("Product", created.name)
+        assertEquals(TaskProjectColor.PURPLE, created.color)
+        assertEquals(created.id, viewModel.uiState.value.selectedProjectId)
+
+        viewModel.showEditProjectEditor(created.id)
+        viewModel.setProjectName("Roadmap")
+        viewModel.saveProject()
+        advanceUntilIdle()
+        assertEquals("Roadmap", repository.projects.value.single().project.name)
+
+        viewModel.showCreateEditor()
+        viewModel.setEditorTitle("Write launch plan")
+        viewModel.saveEditor()
+        advanceUntilIdle()
+        assertEquals(created.id, repository.tasks.value.single().task.projectId)
+
+        viewModel.requestDeleteProject(created.id)
+        assertNotNull(viewModel.uiState.value.projectPendingDeletion)
+        viewModel.confirmDeleteProject()
+        advanceUntilIdle()
+
+        assertTrue(repository.projects.value.isEmpty())
+        assertNull(repository.tasks.value.single().task.projectId)
+        assertNull(viewModel.uiState.value.selectedProjectId)
+        viewModel.viewModelScope.cancel()
+    }
+
+    @Test
+    fun resolvesProjectConflicts() = runTest(dispatcher) {
+        val local = project("project", "Local", TaskProjectColor.ORANGE)
+        val remote = local.copy(
+            name = "Remote",
+            color = TaskProjectColor.ROSE,
+            revision = 2,
+        )
+        val repository = FakeTaskRepository(
+            initialProjects = listOf(
+                TaskProjectItem(local, TaskSyncState.CONFLICT),
+            ),
+            initialProjectConflicts = listOf(
+                TaskProjectConflict(
+                    projectId = local.id,
+                    mutationKind = TaskMutationKind.UPDATE,
+                    base = local.copy(name = "Original"),
+                    local = local,
+                    remote = remote,
+                    conflictingFields = setOf(TaskProjectConflictField.NAME),
+                    detectedAt = NOW,
+                ),
+            ),
+        )
+        val viewModel = taskViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.showProjectConflict(local.id)
+        assertNotNull(viewModel.uiState.value.selectedProjectConflict)
+        viewModel.resolveSelectedProjectConflict(
+            TaskProjectConflictResolution.UseRemote,
+        )
+        advanceUntilIdle()
+
+        assertTrue(repository.projectConflicts.value.isEmpty())
+        assertEquals("Remote", repository.projects.value.single().project.name)
         viewModel.viewModelScope.cancel()
     }
 
@@ -261,6 +393,8 @@ class TaskViewModelTest {
 private class FakeTaskRepository(
     initialTasks: List<TaskItem> = emptyList(),
     initialConflicts: List<TaskConflict> = emptyList(),
+    initialProjects: List<TaskProjectItem> = emptyList(),
+    initialProjectConflicts: List<TaskProjectConflict> = emptyList(),
     var syncResult: TaskSyncResult = TaskSyncResult.Success(0, 0, 0),
 ) : TaskRepository {
     private val mutableTasks = MutableStateFlow(initialTasks)
@@ -269,9 +403,13 @@ private class FakeTaskRepository(
     private val mutableConflicts = MutableStateFlow(initialConflicts)
     override val conflicts: StateFlow<List<TaskConflict>> = mutableConflicts.asStateFlow()
 
-    override val projects = MutableStateFlow<List<TaskProjectItem>>(emptyList())
-    override val projectConflicts =
-        MutableStateFlow<List<TaskProjectConflict>>(emptyList())
+    private val mutableProjects = MutableStateFlow(initialProjects)
+    override val projects: StateFlow<List<TaskProjectItem>> =
+        mutableProjects.asStateFlow()
+
+    private val mutableProjectConflicts = MutableStateFlow(initialProjectConflicts)
+    override val projectConflicts: StateFlow<List<TaskProjectConflict>> =
+        mutableProjectConflicts.asStateFlow()
 
     private val mutableSyncStatus = MutableStateFlow(TaskSyncStatus())
     override val syncStatus: StateFlow<TaskSyncStatus> = mutableSyncStatus.asStateFlow()
@@ -368,21 +506,83 @@ private class FakeTaskRepository(
         mutableConflicts.value = mutableConflicts.value.filterNot { it.taskId == taskId }
     }
 
-    override suspend fun createProject(draft: TaskProjectDraft) =
-        error("Project operations are outside this task view-model test.")
+    override suspend fun createProject(draft: TaskProjectDraft): TaskProject {
+        val created = project(
+            id = "project-${mutableProjects.value.size}",
+            name = draft.name.trim(),
+            color = draft.color,
+        )
+        mutableProjects.value += TaskProjectItem(created, TaskSyncState.PENDING)
+        return created
+    }
 
     override suspend fun updateProject(
         projectId: String,
         edit: TaskProjectEdit,
-    ) = error("Project operations are outside this task view-model test.")
+    ): TaskProject {
+        val current = mutableProjects.value.first {
+            it.project.id == projectId
+        }
+        val updated = current.project.copy(
+            name = edit.name.trim(),
+            color = edit.color,
+            updatedAt = NOW,
+        )
+        mutableProjects.value = mutableProjects.value.map {
+            if (it.project.id == projectId) {
+                TaskProjectItem(updated, TaskSyncState.PENDING)
+            } else {
+                it
+            }
+        }
+        return updated
+    }
 
-    override suspend fun deleteProject(projectId: String) =
-        error("Project operations are outside this task view-model test.")
+    override suspend fun deleteProject(projectId: String) {
+        mutableProjects.value = mutableProjects.value.filterNot {
+            it.project.id == projectId
+        }
+        mutableTasks.value = mutableTasks.value.map { item ->
+            if (item.task.projectId == projectId) {
+                item.copy(
+                    task = item.task.copy(
+                        projectId = null,
+                        updatedAt = NOW,
+                    ),
+                    syncState = TaskSyncState.PENDING,
+                )
+            } else {
+                item
+            }
+        }
+    }
 
     override suspend fun resolveProjectConflict(
         projectId: String,
         resolution: TaskProjectConflictResolution,
-    ) = error("Project operations are outside this task view-model test.")
+    ) {
+        val conflict = mutableProjectConflicts.value.first {
+            it.projectId == projectId
+        }
+        val selected = when (resolution) {
+            TaskProjectConflictResolution.KeepLocal -> conflict.local
+            TaskProjectConflictResolution.UseRemote -> conflict.remote
+            is TaskProjectConflictResolution.Merge -> conflict.local?.copy(
+                name = resolution.edit.name,
+                color = resolution.edit.color,
+            )
+        }
+        mutableProjects.value = mutableProjects.value
+            .filterNot { it.project.id == projectId }
+            .let { remaining ->
+                selected?.let {
+                    remaining + TaskProjectItem(it, TaskSyncState.SYNCED)
+                } ?: remaining
+            }
+        mutableProjectConflicts.value = mutableProjectConflicts.value.filterNot {
+            it.projectId == projectId
+        }
+    }
 
     override suspend fun sync(): TaskSyncResult {
         syncCalls += 1
@@ -407,6 +607,7 @@ private fun taskViewModel(repository: TaskRepository): TaskViewModel = TaskViewM
 private fun taskItem(
     id: String,
     title: String,
+    projectId: String? = null,
     dueDate: LocalDate? = null,
     dueAt: Instant? = null,
     isCompleted: Boolean = false,
@@ -415,6 +616,7 @@ private fun taskItem(
     task = task(
         id = id,
         title = title,
+        projectId = projectId,
         dueDate = dueDate,
         dueAt = dueAt,
         isCompleted = isCompleted,
@@ -440,6 +642,29 @@ private fun task(
     dueDate = dueDate,
     dueAt = dueAt,
     isCompleted = isCompleted,
+    createdAt = NOW,
+    updatedAt = NOW,
+    revision = 1,
+)
+
+private fun projectItem(
+    id: String,
+    name: String,
+    color: TaskProjectColor,
+    syncState: TaskSyncState = TaskSyncState.SYNCED,
+): TaskProjectItem = TaskProjectItem(
+    project = project(id, name, color),
+    syncState = syncState,
+)
+
+private fun project(
+    id: String,
+    name: String,
+    color: TaskProjectColor,
+): TaskProject = TaskProject(
+    id = id,
+    name = name,
+    color = color,
     createdAt = NOW,
     updatedAt = NOW,
     revision = 1,

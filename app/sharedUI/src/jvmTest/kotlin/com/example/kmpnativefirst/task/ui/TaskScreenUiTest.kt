@@ -15,8 +15,11 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runComposeUiTest
 import com.example.kmpnativefirst.task.Task
 import com.example.kmpnativefirst.task.TaskPriority
+import com.example.kmpnativefirst.task.TaskProject
+import com.example.kmpnativefirst.task.TaskProjectColor
 import com.example.kmpnativefirst.task.TaskSmartView
 import com.example.kmpnativefirst.task.data.TaskItem
+import com.example.kmpnativefirst.task.data.TaskProjectItem
 import com.example.kmpnativefirst.task.data.TaskSyncState
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -89,6 +92,47 @@ class TaskScreenUiTest {
         onNodeWithTag(TaskUiTags.task("one")).assertDoesNotExist()
         onNodeWithTag(TaskUiTags.task("two")).assertExists()
     }
+
+    @Test
+    fun createsAndSelectsAProject() = runComposeUiTest {
+        var state by mutableStateOf(
+            TaskUiState(
+                isInitializing = false,
+                tasks = TASKS,
+                activeCount = TASKS.size,
+            ),
+        )
+        var savedProjectName: String? = null
+
+        setContent {
+            TestTaskScreen(
+                state = state,
+                onStateChange = { state = it },
+                onSaveProject = {
+                    savedProjectName = state.projectEditor?.name
+                    val project = PROJECT.copy(name = requireNotNull(savedProjectName))
+                    state = state.copy(
+                        projects = listOf(
+                            TaskProjectItem(project, TaskSyncState.PENDING),
+                        ),
+                        selectedProjectId = project.id,
+                        projectEditor = null,
+                    )
+                },
+            )
+        }
+
+        onNodeWithTag(TaskUiTags.NEW_PROJECT).performClick()
+        onNodeWithTag(TaskUiTags.PROJECT_EDITOR).assertExists()
+        onNodeWithTag(TaskUiTags.PROJECT_EDITOR_NAME).performTextInput("Product")
+        onNodeWithTag(TaskUiTags.PROJECT_EDITOR_SAVE).performClick()
+
+        runOnIdle {
+            assertEquals("Product", savedProjectName)
+            assertEquals(PROJECT.id, state.selectedProjectId)
+        }
+        onNodeWithTag(TaskUiTags.project(PROJECT.id)).assertExists()
+    }
 }
 
 @Composable
@@ -96,6 +140,7 @@ private fun TestTaskScreen(
     state: TaskUiState,
     onStateChange: (TaskUiState) -> Unit,
     onSave: () -> Unit = {},
+    onSaveProject: () -> Unit = {},
 ) {
     MaterialTheme {
         TaskScreen(
@@ -108,6 +153,9 @@ private fun TestTaskScreen(
                 changeView = {
                     onStateChange(state.copy(view = it))
                 },
+                changeProject = {
+                    onStateChange(state.copy(selectedProjectId = it))
+                },
                 createTask = {
                     onStateChange(state.copy(editor = TaskEditorUiState()))
                 },
@@ -118,12 +166,37 @@ private fun TestTaskScreen(
                     onStateChange(state.copy(editor = state.editor?.copy(title = it)))
                 },
                 saveEditor = onSave,
+                createProject = {
+                    onStateChange(
+                        state.copy(projectEditor = TaskProjectEditorUiState()),
+                    )
+                },
+                dismissProjectEditor = {
+                    onStateChange(state.copy(projectEditor = null))
+                },
+                changeProjectName = {
+                    onStateChange(
+                        state.copy(
+                            projectEditor = state.projectEditor?.copy(name = it),
+                        ),
+                    )
+                },
+                saveProject = onSaveProject,
             ),
         )
     }
 }
 
 private val TEST_NOW = Instant.parse("2026-07-23T08:00:00Z")
+
+private val PROJECT = TaskProject(
+    id = "product",
+    name = "Product",
+    color = TaskProjectColor.PURPLE,
+    createdAt = TEST_NOW,
+    updatedAt = TEST_NOW,
+    revision = 1,
+)
 
 private val TASKS = listOf(
     TaskItem(

@@ -1,10 +1,15 @@
 package com.example.kmpnativefirst.task.ui
 
-import com.example.kmpnativefirst.task.TaskPriority
-import com.example.kmpnativefirst.task.TaskSmartView
 import com.example.kmpnativefirst.task.TaskConstraints
+import com.example.kmpnativefirst.task.TaskPriority
+import com.example.kmpnativefirst.task.TaskProject
+import com.example.kmpnativefirst.task.TaskProjectColor
+import com.example.kmpnativefirst.task.TaskProjectConstraints
+import com.example.kmpnativefirst.task.TaskSmartView
 import com.example.kmpnativefirst.task.data.TaskConflict
 import com.example.kmpnativefirst.task.data.TaskItem
+import com.example.kmpnativefirst.task.data.TaskProjectConflict
+import com.example.kmpnativefirst.task.data.TaskProjectItem
 import com.example.kmpnativefirst.task.data.TaskSyncStatus
 import kotlinx.datetime.LocalDate
 import kotlin.time.Instant
@@ -14,17 +19,29 @@ data class TaskUiState(
     val initializationError: String? = null,
     val tasks: List<TaskItem> = emptyList(),
     val view: TaskSmartView = TaskSmartView.INBOX,
+    val selectedProjectId: String? = null,
     val searchQuery: String = "",
     val activeCount: Int = 0,
     val completedCount: Int = 0,
+    val projects: List<TaskProjectItem> = emptyList(),
+    val projectTaskCounts: Map<String, Int> = emptyMap(),
     val syncStatus: TaskSyncStatus = TaskSyncStatus(),
     val conflicts: List<TaskConflict> = emptyList(),
+    val projectConflicts: List<TaskProjectConflict> = emptyList(),
     val editor: TaskEditorUiState? = null,
+    val projectEditor: TaskProjectEditorUiState? = null,
     val taskPendingDeletion: TaskItem? = null,
+    val projectPendingDeletion: TaskProjectItem? = null,
     val isConfirmingClearCompleted: Boolean = false,
     val selectedConflict: TaskConflict? = null,
+    val selectedProjectConflict: TaskProjectConflict? = null,
     val notice: TaskUiNotice? = null,
-)
+) {
+    val selectedProject: TaskProject?
+        get() = projects.firstOrNull {
+            it.project.id == selectedProjectId
+        }?.project
+}
 
 data class TaskEditorUiState(
     val taskId: String? = null,
@@ -49,6 +66,24 @@ data class TaskEditorUiState(
 
     val canSave: Boolean
         get() = !hasTitleError && !hasNotesError && !isSaving
+}
+
+data class TaskProjectEditorUiState(
+    val projectId: String? = null,
+    val name: String = "",
+    val color: TaskProjectColor = TaskProjectColor.BLUE,
+    val isSaving: Boolean = false,
+    val showValidationErrors: Boolean = false,
+) {
+    val isEditing: Boolean
+        get() = projectId != null
+
+    val hasNameError: Boolean
+        get() = name.isBlank() ||
+            name.trim().length > TaskProjectConstraints.MAX_NAME_LENGTH
+
+    val canSave: Boolean
+        get() = !hasNameError && !isSaving
 }
 
 data class TaskUiNotice(
@@ -76,5 +111,8 @@ enum class TaskOperation {
     DELETE,
     CLEAR_COMPLETED,
     RESOLVE_CONFLICT,
+    SAVE_PROJECT,
+    DELETE_PROJECT,
+    RESOLVE_PROJECT_CONFLICT,
     SYNC,
 }

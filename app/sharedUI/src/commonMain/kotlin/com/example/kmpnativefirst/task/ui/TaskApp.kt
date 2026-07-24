@@ -41,6 +41,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ElevatedFilterChip
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledTonalButton
@@ -48,6 +49,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -58,11 +61,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -87,10 +92,13 @@ import com.example.kmpnativefirst.task.TaskSmartView
 import com.example.kmpnativefirst.task.data.TaskConflict
 import com.example.kmpnativefirst.task.data.TaskConflictResolution
 import com.example.kmpnativefirst.task.data.TaskItem
+import com.example.kmpnativefirst.task.data.TaskProjectConflictResolution
+import com.example.kmpnativefirst.task.data.TaskProjectItem
 import com.example.kmpnativefirst.task.data.TaskRepository
 import com.example.kmpnativefirst.task.data.TaskSyncPhase
 import com.example.kmpnativefirst.task.data.TaskSyncState
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.Res
+import kmpnativefirstapptemplate.app.sharedui.generated.resources.browse
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.cancel
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.clear_completed
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.clear_completed_body
@@ -99,6 +107,8 @@ import kmpnativefirstapptemplate.app.sharedui.generated.resources.conflict_body
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.conflict_title
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.conflicts_waiting
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.delete
+import kmpnativefirstapptemplate.app.sharedui.generated.resources.delete_project_body
+import kmpnativefirstapptemplate.app.sharedui.generated.resources.delete_project_title
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.delete_task_body
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.delete_task_title
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.due_date
@@ -110,6 +120,8 @@ import kmpnativefirstapptemplate.app.sharedui.generated.resources.empty_complete
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.empty_completed_title
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.empty_inbox_body
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.empty_inbox_title
+import kmpnativefirstapptemplate.app.sharedui.generated.resources.empty_project_body
+import kmpnativefirstapptemplate.app.sharedui.generated.resources.empty_project_title
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.empty_search_body
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.empty_search_title
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.empty_today_body
@@ -163,6 +175,7 @@ import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.atStartOfDayIn
 import kotlinx.datetime.toLocalDateTime
+import kotlinx.coroutines.launch
 import kotlin.time.Instant
 
 @Composable
@@ -186,6 +199,7 @@ fun TaskApp(
             retryInitialization = viewModel::retryInitialization,
             changeSearchQuery = viewModel::setSearchQuery,
             changeView = viewModel::setView,
+            changeProject = viewModel::setProject,
             createTask = viewModel::showCreateEditor,
             editTask = viewModel::showEditEditor,
             toggleCompleted = viewModel::toggleCompleted,
@@ -202,10 +216,23 @@ fun TaskApp(
             dismissEditor = viewModel::dismissEditor,
             changeEditorTitle = viewModel::setEditorTitle,
             changeEditorNotes = viewModel::setEditorNotes,
+            changeEditorProject = viewModel::setEditorProject,
             changeEditorPriority = viewModel::setEditorPriority,
             changeEditorDueDate = viewModel::setEditorDueDate,
             changeEditorCompleted = viewModel::setEditorCompleted,
             saveEditor = viewModel::saveEditor,
+            createProject = viewModel::showCreateProjectEditor,
+            editProject = viewModel::showEditProjectEditor,
+            dismissProjectEditor = viewModel::dismissProjectEditor,
+            changeProjectName = viewModel::setProjectName,
+            changeProjectColor = viewModel::setProjectColor,
+            saveProject = viewModel::saveProject,
+            requestDeleteProject = viewModel::requestDeleteProject,
+            cancelDeleteProject = viewModel::cancelDeleteProject,
+            confirmDeleteProject = viewModel::confirmDeleteProject,
+            showProjectConflict = viewModel::showProjectConflict,
+            dismissProjectConflict = viewModel::dismissProjectConflict,
+            resolveProjectConflict = viewModel::resolveSelectedProjectConflict,
         )
     }
 
@@ -231,16 +258,186 @@ internal fun TaskScreen(
     actions: TaskScreenActions,
     modifier: Modifier = Modifier,
 ) {
-    Scaffold(
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+    val coroutineScope = rememberCoroutineScope()
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .testTag(TaskUiTags.ROOT),
+    ) {
+        val showPermanentNavigation = maxWidth >= 840.dp
+        if (showPermanentNavigation) {
+            Row(
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                TaskNavigationPane(
+                    state = state,
+                    actions = actions,
+                    onDestinationSelected = {},
+                    modifier = Modifier.width(304.dp),
+                )
+                TaskContentScaffold(
+                    state = state,
+                    snackbarHostState = snackbarHostState,
+                    actions = actions,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        } else {
+            ModalNavigationDrawer(
+                drawerState = drawerState,
+                drawerContent = {
+                    ModalDrawerSheet {
+                        TaskNavigationPane(
+                            state = state,
+                            actions = actions,
+                            onDestinationSelected = {
+                                coroutineScope.launch { drawerState.close() }
+                            },
+                            modifier = Modifier.width(320.dp),
+                            shape = MaterialTheme.shapes.extraLarge,
+                        )
+                    }
+                },
+            ) {
+                TaskContentScaffold(
+                    state = state,
+                    snackbarHostState = snackbarHostState,
+                    actions = actions,
+                    onOpenNavigation = {
+                        coroutineScope.launch { drawerState.open() }
+                    },
+                )
+            }
+        }
+    }
+
+    state.taskPendingDeletion?.let { pending ->
+        AlertDialog(
+            onDismissRequest = actions.cancelDelete,
+            title = {
+                Text(stringResource(Res.string.delete_task_title, pending.task.title))
+            },
+            text = { Text(stringResource(Res.string.delete_task_body)) },
+            confirmButton = {
+                Button(onClick = actions.confirmDelete) {
+                    Text(stringResource(Res.string.delete))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = actions.cancelDelete) {
+                    Text(stringResource(Res.string.cancel))
+                }
+            },
+        )
+    }
+
+    if (state.isConfirmingClearCompleted) {
+        AlertDialog(
+            onDismissRequest = actions.cancelClearCompleted,
+            title = { Text(stringResource(Res.string.clear_completed_title)) },
+            text = { Text(stringResource(Res.string.clear_completed_body)) },
+            confirmButton = {
+                Button(onClick = actions.confirmClearCompleted) {
+                    Text(stringResource(Res.string.clear_completed))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = actions.cancelClearCompleted) {
+                    Text(stringResource(Res.string.cancel))
+                }
+            },
+        )
+    }
+
+    state.selectedConflict?.let { conflict ->
+        ConflictDialog(
+            conflict = conflict,
+            onDismiss = actions.dismissConflict,
+            onKeepLocal = {
+                actions.resolveConflict(TaskConflictResolution.KeepLocal)
+            },
+            onUseRemote = {
+                actions.resolveConflict(TaskConflictResolution.UseRemote)
+            },
+        )
+    }
+
+    state.projectEditor?.let { editor ->
+        TaskProjectEditorDialog(
+            editor = editor,
+            onDismiss = actions.dismissProjectEditor,
+            onNameChange = actions.changeProjectName,
+            onColorChange = actions.changeProjectColor,
+            onSave = actions.saveProject,
+            onDelete = {
+                editor.projectId?.let(actions.requestDeleteProject)
+            },
+        )
+    }
+
+    state.projectPendingDeletion?.let { pending ->
+        AlertDialog(
+            onDismissRequest = actions.cancelDeleteProject,
+            title = {
+                Text(
+                    stringResource(
+                        Res.string.delete_project_title,
+                        pending.project.name,
+                    ),
+                )
+            },
+            text = { Text(stringResource(Res.string.delete_project_body)) },
+            confirmButton = {
+                Button(onClick = actions.confirmDeleteProject) {
+                    Text(stringResource(Res.string.delete))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = actions.cancelDeleteProject) {
+                    Text(stringResource(Res.string.cancel))
+                }
+            },
+        )
+    }
+
+    state.selectedProjectConflict?.let { conflict ->
+        TaskProjectConflictDialog(
+            conflict = conflict,
+            onDismiss = actions.dismissProjectConflict,
+            onKeepLocal = {
+                actions.resolveProjectConflict(
+                    TaskProjectConflictResolution.KeepLocal,
+                )
+            },
+            onUseRemote = {
+                actions.resolveProjectConflict(
+                    TaskProjectConflictResolution.UseRemote,
+                )
+            },
+        )
+    }
+}
+
+@Composable
+private fun TaskContentScaffold(
+    state: TaskUiState,
+    snackbarHostState: SnackbarHostState,
+    actions: TaskScreenActions,
+    modifier: Modifier = Modifier,
+    onOpenNavigation: (() -> Unit)? = null,
+) {
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.surface,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             LargeFlexibleTopAppBar(
                 title = {
-                    Text(stringResource(Res.string.tasks_title))
+                    Text(
+                        state.selectedProject?.name
+                            ?: stringResource(Res.string.tasks_title),
+                    )
                 },
                 subtitle = {
                     Text(
@@ -250,6 +447,13 @@ internal fun TaskScreen(
                             state.completedCount,
                         ),
                     )
+                },
+                navigationIcon = {
+                    onOpenNavigation?.let { openNavigation ->
+                        TextButton(onClick = openNavigation) {
+                            Text(stringResource(Res.string.browse))
+                        }
+                    }
                 },
                 actions = {
                     FilledTonalButton(
@@ -327,9 +531,11 @@ internal fun TaskScreen(
                         ) {
                             TaskEditor(
                                 editor = editor,
+                                projects = state.projects,
                                 onDismiss = actions.dismissEditor,
                                 onTitleChange = actions.changeEditorTitle,
                                 onNotesChange = actions.changeEditorNotes,
+                                onProjectChange = actions.changeEditorProject,
                                 onPriorityChange = actions.changeEditorPriority,
                                 onDueDateChange = actions.changeEditorDueDate,
                                 onCompletedChange = actions.changeEditorCompleted,
@@ -347,9 +553,11 @@ internal fun TaskScreen(
             if (state.editor != null && !showEditorPane) {
                 TaskEditorDialog(
                     editor = state.editor,
+                    projects = state.projects,
                     onDismiss = actions.dismissEditor,
                     onTitleChange = actions.changeEditorTitle,
                     onNotesChange = actions.changeEditorNotes,
+                    onProjectChange = actions.changeEditorProject,
                     onPriorityChange = actions.changeEditorPriority,
                     onDueDateChange = actions.changeEditorDueDate,
                     onCompletedChange = actions.changeEditorCompleted,
@@ -360,57 +568,6 @@ internal fun TaskScreen(
                 )
             }
         }
-    }
-
-    state.taskPendingDeletion?.let { pending ->
-        AlertDialog(
-            onDismissRequest = actions.cancelDelete,
-            title = {
-                Text(stringResource(Res.string.delete_task_title, pending.task.title))
-            },
-            text = { Text(stringResource(Res.string.delete_task_body)) },
-            confirmButton = {
-                Button(onClick = actions.confirmDelete) {
-                    Text(stringResource(Res.string.delete))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = actions.cancelDelete) {
-                    Text(stringResource(Res.string.cancel))
-                }
-            },
-        )
-    }
-
-    if (state.isConfirmingClearCompleted) {
-        AlertDialog(
-            onDismissRequest = actions.cancelClearCompleted,
-            title = { Text(stringResource(Res.string.clear_completed_title)) },
-            text = { Text(stringResource(Res.string.clear_completed_body)) },
-            confirmButton = {
-                Button(onClick = actions.confirmClearCompleted) {
-                    Text(stringResource(Res.string.clear_completed))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = actions.cancelClearCompleted) {
-                    Text(stringResource(Res.string.cancel))
-                }
-            },
-        )
-    }
-
-    state.selectedConflict?.let { conflict ->
-        ConflictDialog(
-            conflict = conflict,
-            onDismiss = actions.dismissConflict,
-            onKeepLocal = {
-                actions.resolveConflict(TaskConflictResolution.KeepLocal)
-            },
-            onUseRemote = {
-                actions.resolveConflict(TaskConflictResolution.UseRemote)
-            },
-        )
     }
 }
 
@@ -427,6 +584,9 @@ private fun TaskListPane(
     onShowConflict: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val projectsById = remember(state.projects) {
+        state.projects.associateBy { it.project.id }
+    }
     Column(
         modifier = modifier
             .fillMaxHeight()
@@ -455,7 +615,7 @@ private fun TaskListPane(
         ) {
             TaskSmartView.entries.forEach { view ->
                 ElevatedFilterChip(
-                    selected = state.view == view,
+                    selected = state.selectedProjectId == null && state.view == view,
                     onClick = { onViewChange(view) },
                     label = {
                         Text(
@@ -498,6 +658,7 @@ private fun TaskListPane(
             state.tasks.isEmpty() -> {
                 EmptyTasks(
                     view = state.view,
+                    isProject = state.selectedProjectId != null,
                     hasSearchQuery = state.searchQuery.isNotBlank(),
                 )
             }
@@ -516,6 +677,7 @@ private fun TaskListPane(
                     ) { index, item ->
                         TaskRow(
                             item = item,
+                            project = item.task.projectId?.let(projectsById::get),
                             index = index,
                             count = state.tasks.size,
                             onToggleCompleted = onToggleCompleted,
@@ -615,6 +777,7 @@ private fun StatusSurface(
 @Composable
 private fun TaskRow(
     item: TaskItem,
+    project: TaskProjectItem?,
     index: Int,
     count: Int,
     onToggleCompleted: (String) -> Unit,
@@ -647,7 +810,10 @@ private fun TaskRow(
             )
         },
         supportingContent = {
-            TaskSupportingText(item)
+            TaskSupportingText(
+                item = item,
+                project = project,
+            )
         },
         leadingContent = {
             Checkbox(
@@ -675,7 +841,10 @@ private fun TaskRow(
 }
 
 @Composable
-private fun TaskSupportingText(item: TaskItem) {
+private fun TaskSupportingText(
+    item: TaskItem,
+    project: TaskProjectItem?,
+) {
     val task = item.task
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         task.notes?.takeIf(String::isNotBlank)?.let {
@@ -689,6 +858,18 @@ private fun TaskSupportingText(item: TaskItem) {
             modifier = Modifier.horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            project?.let {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TaskProjectDot(it.project.color)
+                    Text(
+                        it.project.name,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
+            }
             if (task.priority != TaskPriority.NONE) {
                 Text(
                     stringResource(task.priority.labelResource()),
@@ -750,6 +931,7 @@ private fun InitializationError(onRetry: () -> Unit) {
 @Composable
 private fun EmptyTasks(
     view: TaskSmartView,
+    isProject: Boolean,
     hasSearchQuery: Boolean,
 ) {
     val title: StringResource
@@ -757,6 +939,9 @@ private fun EmptyTasks(
     if (hasSearchQuery) {
         title = Res.string.empty_search_title
         body = Res.string.empty_search_body
+    } else if (isProject) {
+        title = Res.string.empty_project_title
+        body = Res.string.empty_project_body
     } else {
         when (view) {
             TaskSmartView.ALL -> {
@@ -810,9 +995,11 @@ private fun EmptyTasks(
 @Composable
 private fun TaskEditorDialog(
     editor: TaskEditorUiState,
+    projects: List<TaskProjectItem>,
     onDismiss: () -> Unit,
     onTitleChange: (String) -> Unit,
     onNotesChange: (String) -> Unit,
+    onProjectChange: (String?) -> Unit,
     onPriorityChange: (TaskPriority) -> Unit,
     onDueDateChange: (LocalDate?) -> Unit,
     onCompletedChange: (Boolean) -> Unit,
@@ -831,9 +1018,11 @@ private fun TaskEditorDialog(
         ) {
             TaskEditor(
                 editor = editor,
+                projects = projects,
                 onDismiss = onDismiss,
                 onTitleChange = onTitleChange,
                 onNotesChange = onNotesChange,
+                onProjectChange = onProjectChange,
                 onPriorityChange = onPriorityChange,
                 onDueDateChange = onDueDateChange,
                 onCompletedChange = onCompletedChange,
@@ -848,9 +1037,11 @@ private fun TaskEditorDialog(
 @Composable
 private fun TaskEditor(
     editor: TaskEditorUiState,
+    projects: List<TaskProjectItem>,
     onDismiss: () -> Unit,
     onTitleChange: (String) -> Unit,
     onNotesChange: (String) -> Unit,
+    onProjectChange: (String?) -> Unit,
     onPriorityChange: (TaskPriority) -> Unit,
     onDueDateChange: (LocalDate?) -> Unit,
     onCompletedChange: (Boolean) -> Unit,
@@ -918,6 +1109,14 @@ private fun TaskEditor(
                     )
                 }
             },
+        )
+
+        TaskProjectPicker(
+            projects = projects,
+            selectedProjectId = editor.projectId,
+            enabled = !editor.isSaving,
+            onProjectChange = onProjectChange,
+            modifier = Modifier.fillMaxWidth(),
         )
 
         Text(
@@ -1171,9 +1370,16 @@ internal object TaskUiTags {
     const val NEW_TASK = "tasks-new"
     const val EDITOR = "task-editor"
     const val EDITOR_TITLE = "task-editor-title"
+    const val EDITOR_PROJECT = "task-editor-project"
     const val EDITOR_SAVE = "task-editor-save"
+    const val NEW_PROJECT = "projects-new"
+    const val PROJECT_EDITOR = "project-editor"
+    const val PROJECT_EDITOR_NAME = "project-editor-name"
+    const val PROJECT_EDITOR_SAVE = "project-editor-save"
 
     fun task(id: String): String = "task-$id"
+
+    fun project(id: String): String = "project-$id"
 }
 
 @Preview
