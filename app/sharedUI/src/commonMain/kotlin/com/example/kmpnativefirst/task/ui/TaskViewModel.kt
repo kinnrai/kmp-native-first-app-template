@@ -153,6 +153,10 @@ class TaskViewModel(
         }
     }
 
+    fun setEditorReminderAt(reminderAt: Instant?) {
+        updateEditor { copy(reminderAt = reminderAt) }
+    }
+
     fun setEditorCompleted(isCompleted: Boolean) {
         updateEditor { copy(isCompleted = isCompleted) }
     }

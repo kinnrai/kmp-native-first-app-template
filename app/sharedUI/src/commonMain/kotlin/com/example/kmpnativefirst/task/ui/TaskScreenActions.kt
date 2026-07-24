@@ -9,6 +9,7 @@ import com.example.kmpnativefirst.task.data.TaskConflictResolution
 import com.example.kmpnativefirst.task.data.TaskLabelConflictResolution
 import com.example.kmpnativefirst.task.data.TaskProjectConflictResolution
 import kotlinx.datetime.LocalDate
+import kotlin.time.Instant
 
 @Stable
 internal class TaskScreenActions(
@@ -50,6 +51,7 @@ internal class TaskScreenActions(
     val changeEditorProject: (String?) -> Unit = {},
     val changeEditorPriority: (TaskPriority) -> Unit = {},
     val changeEditorDueDate: (LocalDate?) -> Unit = {},
+    val changeEditorReminderAt: (Instant?) -> Unit = {},
     val changeEditorCompleted: (Boolean) -> Unit = {},
     val changeEditorLabel: (String, Boolean) -> Unit = { _, _ -> },
     val saveEditor: () -> Unit = {},

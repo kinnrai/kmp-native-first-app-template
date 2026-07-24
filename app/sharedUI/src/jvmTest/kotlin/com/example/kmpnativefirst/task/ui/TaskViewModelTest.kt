@@ -125,6 +125,7 @@ class TaskViewModelTest {
         viewModel.setEditorNotes("Verify edge-to-edge behavior")
         viewModel.setEditorPriority(TaskPriority.HIGH)
         viewModel.setEditorDueDate(LocalDate(2026, 7, 25))
+        viewModel.setEditorReminderAt(Instant.parse("2026-07-25T08:30:00Z"))
         viewModel.saveEditor()
         advanceUntilIdle()
 
@@ -133,6 +134,10 @@ class TaskViewModelTest {
         assertEquals("Ship Android UI", created.title)
         assertEquals(TaskPriority.HIGH, created.priority)
         assertEquals(LocalDate(2026, 7, 25), created.dueDate)
+        assertEquals(
+            Instant.parse("2026-07-25T08:30:00Z"),
+            created.reminderAt,
+        )
 
         viewModel.showEditEditor(created.id)
         viewModel.setEditorTitle("Ship Compose UI")
@@ -142,6 +147,10 @@ class TaskViewModelTest {
 
         assertEquals("Ship Compose UI", repository.tasks.value.single().task.title)
         assertTrue(repository.tasks.value.single().task.isCompleted)
+        assertEquals(
+            Instant.parse("2026-07-25T08:30:00Z"),
+            repository.tasks.value.single().task.reminderAt,
+        )
         viewModel.viewModelScope.cancel()
     }
 
@@ -564,6 +573,7 @@ private class FakeTaskRepository(
             priority = draft.priority,
             dueDate = draft.dueDate,
             dueAt = draft.dueAt,
+            reminderAt = draft.reminderAt,
         )
         mutableTasks.value += TaskItem(created, TaskSyncState.PENDING)
         return created
@@ -579,6 +589,7 @@ private class FakeTaskRepository(
             priority = edit.priority,
             dueDate = edit.dueDate,
             dueAt = edit.dueAt,
+            reminderAt = edit.reminderAt,
             isCompleted = edit.isCompleted,
             updatedAt = NOW,
         )
@@ -604,6 +615,7 @@ private class FakeTaskRepository(
                 priority = current.priority,
                 dueDate = current.dueDate,
                 dueAt = current.dueAt,
+                reminderAt = current.reminderAt,
                 isCompleted = !current.isCompleted,
             ),
         )
@@ -632,6 +644,7 @@ private class FakeTaskRepository(
                 priority = resolution.edit.priority,
                 dueDate = resolution.edit.dueDate,
                 dueAt = resolution.edit.dueAt,
+                reminderAt = resolution.edit.reminderAt,
                 isCompleted = resolution.edit.isCompleted,
             )
         }
@@ -822,6 +835,7 @@ private fun taskItem(
     labelIds: List<String> = emptyList(),
     dueDate: LocalDate? = null,
     dueAt: Instant? = null,
+    reminderAt: Instant? = null,
     isCompleted: Boolean = false,
     syncState: TaskSyncState = TaskSyncState.SYNCED,
 ): TaskItem = TaskItem(
@@ -832,6 +846,7 @@ private fun taskItem(
         labelIds = labelIds,
         dueDate = dueDate,
         dueAt = dueAt,
+        reminderAt = reminderAt,
         isCompleted = isCompleted,
     ),
     syncState = syncState,
@@ -846,6 +861,7 @@ private fun task(
     priority: TaskPriority = TaskPriority.NONE,
     dueDate: LocalDate? = null,
     dueAt: Instant? = null,
+    reminderAt: Instant? = null,
     isCompleted: Boolean = false,
 ): Task = Task(
     id = id,
@@ -856,6 +872,7 @@ private fun task(
     priority = priority,
     dueDate = dueDate,
     dueAt = dueAt,
+    reminderAt = reminderAt,
     isCompleted = isCompleted,
     createdAt = NOW,
     updatedAt = NOW,
