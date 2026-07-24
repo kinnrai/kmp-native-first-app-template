@@ -1,0 +1,2 @@
+ALTER TABLE cachedTask
+ADD COLUMN reminderAtEpochMillis INTEGER;

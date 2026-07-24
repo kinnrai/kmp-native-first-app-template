@@ -60,6 +60,7 @@ internal class KtorTaskRemoteDataSource(
                     priority = task.priority,
                     dueDate = task.dueDate,
                     dueAt = task.dueAt,
+                    reminderAt = task.reminderAt,
                 ),
             )
         }
@@ -79,6 +80,7 @@ internal class KtorTaskRemoteDataSource(
                     priority = task.priority,
                     dueDate = task.dueDate,
                     dueAt = task.dueAt,
+                    reminderAt = task.reminderAt,
                     isCompleted = task.isCompleted,
                     expectedRevision = task.revision,
                 ),

@@ -71,6 +71,7 @@ enum class TaskConflictField {
     PRIORITY,
     DUE_DATE,
     DUE_AT,
+    REMINDER_AT,
     COMPLETION,
 }
 

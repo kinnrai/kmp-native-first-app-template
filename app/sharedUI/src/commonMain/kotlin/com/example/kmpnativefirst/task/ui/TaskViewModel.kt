@@ -111,6 +111,7 @@ class TaskViewModel(
                     priority = task.priority,
                     dueDate = TaskPlanning.dueDate(task, timeZone),
                     dueAt = task.dueAt,
+                    reminderAt = task.reminderAt,
                     isCompleted = task.isCompleted,
                 ),
             )
@@ -193,6 +194,7 @@ class TaskViewModel(
                             priority = editor.priority,
                             dueDate = editor.dueDate,
                             dueAt = editor.dueAt,
+                            reminderAt = editor.reminderAt,
                         ),
                     )
                 } else {
@@ -206,6 +208,7 @@ class TaskViewModel(
                             priority = editor.priority,
                             dueDate = editor.dueDate.takeIf { editor.dueAt == null },
                             dueAt = editor.dueAt,
+                            reminderAt = editor.reminderAt,
                             isCompleted = editor.isCompleted,
                         ),
                     )

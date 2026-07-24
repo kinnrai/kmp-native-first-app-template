@@ -16,6 +16,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import kotlin.time.Instant
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AppleTaskStoreTest {
@@ -66,6 +67,7 @@ class AppleTaskStoreTest {
             priority = TaskPriority.HIGH,
             dueDate = LocalDate(2026, 7, 24),
             dueAt = null,
+            reminderAt = Instant.parse("2026-07-24T08:30:00Z"),
             projectId = TASK_ID_2,
         )
         store.update(
@@ -75,6 +77,7 @@ class AppleTaskStoreTest {
             priority = TaskPriority.MEDIUM,
             dueDate = null,
             dueAt = null,
+            reminderAt = Instant.parse("2026-07-24T08:45:00Z"),
             isCompleted = true,
             projectId = TASK_ID_2,
         )
@@ -87,6 +90,7 @@ class AppleTaskStoreTest {
                 priority = TaskPriority.HIGH,
                 dueDate = LocalDate(2026, 7, 24),
                 dueAt = null,
+                reminderAt = Instant.parse("2026-07-24T08:30:00Z"),
             ),
             repository.createdDraft,
         )
@@ -98,6 +102,7 @@ class AppleTaskStoreTest {
                 priority = TaskPriority.MEDIUM,
                 dueDate = null,
                 dueAt = null,
+                reminderAt = Instant.parse("2026-07-24T08:45:00Z"),
                 isCompleted = true,
             ),
             repository.updatedEdit,
@@ -160,11 +165,16 @@ class AppleTaskStoreTest {
             priority = TaskPriority.NONE,
             dueDate = null,
             dueAt = null,
+            reminderAt = Instant.parse("2026-07-24T09:00:00Z"),
             isCompleted = false,
             projectId = TASK_ID_2,
         )
         val merge = assertIs<TaskConflictResolution.Merge>(repository.resolution)
         assertEquals(TASK_ID_2, merge.edit.projectId)
+        assertEquals(
+            Instant.parse("2026-07-24T09:00:00Z"),
+            merge.edit.reminderAt,
+        )
         store.close()
 
         assertTrue(repository.closed)

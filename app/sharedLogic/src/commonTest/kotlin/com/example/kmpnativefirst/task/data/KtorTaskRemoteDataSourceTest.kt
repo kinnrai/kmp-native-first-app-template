@@ -18,6 +18,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
+import kotlin.time.Instant
 
 class KtorTaskRemoteDataSourceTest {
     @Test
@@ -42,7 +43,11 @@ class KtorTaskRemoteDataSourceTest {
 
     @Test
     fun createsTasksAndDecodesTheCanonicalServerVersion() = runTest {
-        val created = task(labelIds = listOf(LABEL_ID), revision = 1)
+        val created = task(
+            labelIds = listOf(LABEL_ID),
+            reminderAt = Instant.parse("2026-08-01T08:30:00Z"),
+            revision = 1,
+        )
         val remote = remote { request ->
             assertEquals(HttpMethod.Post, request.method)
             assertEquals("/api/v1/tasks", request.url.encodedPath)
@@ -52,6 +57,12 @@ class KtorTaskRemoteDataSourceTest {
                 taskJson.decodeFromString<CreateTaskRequest>(
                     body.bytes().decodeToString(),
                 ).labelIds,
+            )
+            assertEquals(
+                created.reminderAt,
+                taskJson.decodeFromString<CreateTaskRequest>(
+                    body.bytes().decodeToString(),
+                ).reminderAt,
             )
             respondJson(
                 content = taskJson.encodeToString(created),
@@ -64,7 +75,10 @@ class KtorTaskRemoteDataSourceTest {
 
     @Test
     fun sendsLabelAssignmentsWhenReplacingTasks() = runTest {
-        val replacement = task(labelIds = listOf(LABEL_ID))
+        val replacement = task(
+            labelIds = listOf(LABEL_ID),
+            reminderAt = Instant.parse("2026-08-01T08:30:00Z"),
+        )
         val remote = remote { request ->
             assertEquals(HttpMethod.Put, request.method)
             val body = request.body as OutgoingContent.ByteArrayContent
@@ -73,6 +87,12 @@ class KtorTaskRemoteDataSourceTest {
                 taskJson.decodeFromString<ReplaceTaskRequest>(
                     body.bytes().decodeToString(),
                 ).labelIds,
+            )
+            assertEquals(
+                replacement.reminderAt,
+                taskJson.decodeFromString<ReplaceTaskRequest>(
+                    body.bytes().decodeToString(),
+                ).reminderAt,
             )
             respondJson(taskJson.encodeToString(replacement.copy(revision = 2)))
         }

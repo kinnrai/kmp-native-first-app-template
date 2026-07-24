@@ -62,6 +62,13 @@ internal object TaskMerge {
             remote = remote.dueAt,
             conflicts = conflicts,
         )
+        val reminderAt = mergeValue(
+            field = TaskConflictField.REMINDER_AT,
+            base = base.reminderAt,
+            local = local.reminderAt,
+            remote = remote.reminderAt,
+            conflicts = conflicts,
+        )
         val isCompleted = mergeValue(
             field = TaskConflictField.COMPLETION,
             base = base.isCompleted,
@@ -80,6 +87,7 @@ internal object TaskMerge {
                     priority = priority,
                     dueDate = dueDate,
                     dueAt = dueAt,
+                    reminderAt = reminderAt,
                     isCompleted = isCompleted,
                     updatedAt = maxOf(local.updatedAt, remote.updatedAt),
                 ),
@@ -100,6 +108,7 @@ internal object TaskMerge {
             first.priority == second.priority &&
             first.dueDate == second.dueDate &&
             first.dueAt == second.dueAt &&
+            first.reminderAt == second.reminderAt &&
             first.isCompleted == second.isCompleted
 
     private fun <T> mergeValue(
