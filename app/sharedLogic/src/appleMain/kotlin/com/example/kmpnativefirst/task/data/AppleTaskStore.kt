@@ -1,7 +1,9 @@
 package com.example.kmpnativefirst.task.data
 
 import com.example.kmpnativefirst.task.Task
+import com.example.kmpnativefirst.task.TaskPlanning
 import com.example.kmpnativefirst.task.TaskPriority
+import com.example.kmpnativefirst.task.TaskSmartView
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -10,6 +12,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.TimeZone
 import kotlin.time.Instant
 
 /**
@@ -24,6 +28,7 @@ class AppleTaskStore internal constructor(
     dispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
+    private var latestTasks: List<TaskItem> = emptyList()
 
     fun observe(
         listener: (AppleTaskSnapshot) -> Unit,
@@ -34,7 +39,10 @@ class AppleTaskStore internal constructor(
                 repository.conflicts,
                 repository.syncStatus,
                 ::AppleTaskSnapshot,
-            ).collect(listener)
+            ).collect { snapshot ->
+                latestTasks = snapshot.tasks
+                listener(snapshot)
+            }
         }
         return AppleTaskObservation(job)
     }
@@ -44,12 +52,14 @@ class AppleTaskStore internal constructor(
         title: String,
         notes: String?,
         priority: TaskPriority,
+        dueDate: LocalDate?,
         dueAt: Instant?,
     ): Task = repository.create(
         TaskDraft(
             title = title,
             notes = notes,
             priority = priority,
+            dueDate = dueDate,
             dueAt = dueAt,
         ),
     )
@@ -60,6 +70,7 @@ class AppleTaskStore internal constructor(
         title: String,
         notes: String?,
         priority: TaskPriority,
+        dueDate: LocalDate?,
         dueAt: Instant?,
         isCompleted: Boolean,
     ): Task = repository.update(
@@ -68,6 +79,7 @@ class AppleTaskStore internal constructor(
             title = title,
             notes = notes,
             priority = priority,
+            dueDate = dueDate,
             dueAt = dueAt,
             isCompleted = isCompleted,
         ),
@@ -103,6 +115,7 @@ class AppleTaskStore internal constructor(
         title: String,
         notes: String?,
         priority: TaskPriority,
+        dueDate: LocalDate?,
         dueAt: Instant?,
         isCompleted: Boolean,
     ) {
@@ -113,6 +126,7 @@ class AppleTaskStore internal constructor(
                     title = title,
                     notes = notes,
                     priority = priority,
+                    dueDate = dueDate,
                     dueAt = dueAt,
                     isCompleted = isCompleted,
                 ),
@@ -122,6 +136,26 @@ class AppleTaskStore internal constructor(
 
     @Throws(Exception::class)
     suspend fun sync(): TaskSyncResult = repository.sync()
+
+    fun plannedTasks(
+        view: TaskSmartView,
+        todayYear: Int,
+        todayMonth: Int,
+        todayDay: Int,
+        timeZoneId: String,
+    ): List<TaskItem> {
+        val timeZone = runCatching { TimeZone.of(timeZoneId) }
+            .getOrDefault(TimeZone.UTC)
+        val itemsById = latestTasks.associateBy { it.task.id }
+        return TaskPlanning.select(
+            tasks = latestTasks.map(TaskItem::task),
+            view = view,
+            today = LocalDate(todayYear, todayMonth, todayDay),
+            timeZone = timeZone,
+        ).mapNotNull { task ->
+            itemsById[task.id]
+        }
+    }
 
     @Throws(Exception::class)
     fun close() {

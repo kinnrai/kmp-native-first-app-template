@@ -3,7 +3,9 @@ import SharedLogic
 
 enum TaskListFilter: String, CaseIterable, Identifiable {
   case all
-  case active
+  case inbox
+  case today
+  case upcoming
   case completed
   case conflicts
 
@@ -12,7 +14,9 @@ enum TaskListFilter: String, CaseIterable, Identifiable {
   var title: String {
     switch self {
     case .all: "All"
-    case .active: "Active"
+    case .inbox: "Inbox"
+    case .today: "Today"
+    case .upcoming: "Upcoming"
     case .completed: "Completed"
     case .conflicts: "Conflicts"
     }
@@ -21,9 +25,22 @@ enum TaskListFilter: String, CaseIterable, Identifiable {
   var systemImage: String {
     switch self {
     case .all: "tray.full"
-    case .active: "circle"
+    case .inbox: "tray"
+    case .today: "sun.max"
+    case .upcoming: "calendar"
     case .completed: "checkmark.circle"
     case .conflicts: "exclamationmark.triangle"
+    }
+  }
+
+  var kotlinValue: SharedLogic.TaskSmartView? {
+    switch self {
+    case .all: SharedLogic.TaskSmartView.all
+    case .inbox: SharedLogic.TaskSmartView.inbox
+    case .today: SharedLogic.TaskSmartView.today
+    case .upcoming: SharedLogic.TaskSmartView.upcoming
+    case .completed: SharedLogic.TaskSmartView.completed
+    case .conflicts: nil
     }
   }
 }
@@ -96,11 +113,49 @@ enum TaskSyncStateValue: Hashable {
   }
 }
 
+struct TaskCalendarDate: Hashable, Comparable {
+  let year: Int
+  let month: Int
+  let day: Int
+
+  init(_ date: Date, calendar: Calendar = .current) {
+    let components = calendar.dateComponents([.year, .month, .day], from: date)
+    year = components.year!
+    month = components.month!
+    day = components.day!
+  }
+
+  init(_ date: SharedLogic.Kotlinx_datetimeLocalDate) {
+    year = Int(date.year)
+    month = Int(date.month.ordinal) + 1
+    day = Int(date.day)
+  }
+
+  var date: Date {
+    Calendar.current.date(
+      from: DateComponents(year: year, month: month, day: day)
+    )!
+  }
+
+  var kotlinValue: SharedLogic.Kotlinx_datetimeLocalDate {
+    SharedLogic.Kotlinx_datetimeLocalDate(
+      year: Int32(year),
+      month: Int32(month),
+      day: Int32(day)
+    )
+  }
+
+  static func < (lhs: Self, rhs: Self) -> Bool {
+    (lhs.year, lhs.month, lhs.day) < (rhs.year, rhs.month, rhs.day)
+  }
+}
+
 struct TaskRecord: Identifiable, Hashable {
   let id: String
   let title: String
   let notes: String?
   let priority: TaskPriorityValue
+  let dueDate: TaskCalendarDate?
   let dueAt: Date?
   let isCompleted: Bool
   let createdAt: Date
@@ -120,12 +175,29 @@ struct TaskRecord: Identifiable, Hashable {
     title = task.title
     notes = task.notes
     priority = TaskPriorityValue(task.priority)
+    if let taskDueDate = task.dueDate {
+      dueDate = TaskCalendarDate(taskDueDate)
+    } else {
+      dueDate = nil
+    }
     dueAt = task.dueAt?.date
     isCompleted = task.isCompleted
     createdAt = task.createdAt.date
     updatedAt = task.updatedAt.date
     revision = task.revision
     self.syncState = syncState
+  }
+
+  var displayedDueDate: Date? {
+    dueDate?.date ?? dueAt
+  }
+
+  var isOverdue: Bool {
+    guard !isCompleted else { return false }
+    if let dueDate {
+      return dueDate < TaskCalendarDate(Date())
+    }
+    return dueAt.map { $0 < Date() } ?? false
   }
 }
 
@@ -134,7 +206,8 @@ struct TaskEditorDraft: Equatable {
   var notes = ""
   var priority = TaskPriorityValue.none
   var includesDueDate = false
-  var dueAt = Date()
+  var selectedDueDate = Date()
+  var preciseDueAt: Date?
   var isCompleted = false
 
   init(task: TaskRecord? = nil) {
@@ -142,9 +215,20 @@ struct TaskEditorDraft: Equatable {
     title = task.title
     notes = task.notes ?? ""
     priority = task.priority
-    includesDueDate = task.dueAt != nil
-    dueAt = task.dueAt ?? Date()
+    includesDueDate = task.dueDate != nil || task.dueAt != nil
+    selectedDueDate = task.dueDate?.date ?? task.dueAt ?? Date()
+    preciseDueAt = task.dueDate == nil ? task.dueAt : nil
     isCompleted = task.isCompleted
+  }
+
+  var dueDate: SharedLogic.Kotlinx_datetimeLocalDate? {
+    guard includesDueDate, preciseDueAt == nil else { return nil }
+    return TaskCalendarDate(selectedDueDate).kotlinValue
+  }
+
+  var dueAt: SharedLogic.KotlinInstant? {
+    guard includesDueDate else { return nil }
+    return preciseDueAt?.kotlinInstant
   }
 
   var normalizedTitle: String {

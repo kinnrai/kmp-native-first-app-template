@@ -137,7 +137,13 @@ struct TaskDetailView: View {
         Text(task.priority.title)
       }
 
-      if let dueAt = task.dueAt {
+      if let dueDate = task.dueDate {
+        GridRow {
+          Label("Due", systemImage: "calendar")
+            .foregroundStyle(.secondary)
+          Text(dueDate.date, format: .dateTime.year().month().day())
+        }
+      } else if let dueAt = task.dueAt {
         GridRow {
           Label("Due", systemImage: "calendar")
             .foregroundStyle(.secondary)

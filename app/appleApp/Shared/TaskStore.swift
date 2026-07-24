@@ -44,16 +44,7 @@ final class TaskStore {
   }
 
   func count(for filter: TaskListFilter) -> Int {
-    switch filter {
-    case .all:
-      tasks.count
-    case .active:
-      tasks.count { !$0.isCompleted }
-    case .completed:
-      completedCount
-    case .conflicts:
-      conflicts.count
-    }
+    filter == .conflicts ? conflicts.count : plannedTasks(for: filter).count
   }
 
   func task(id: String) -> TaskRecord? {
@@ -72,42 +63,12 @@ final class TaskStore {
     let candidates =
       filter == .conflicts
       ? conflicts.compactMap { $0.local ?? $0.remote }
-      : tasks
+      : plannedTasks(for: filter)
     return
       candidates
       .filter { task in
-        switch filter {
-        case .all:
-          true
-        case .active:
-          !task.isCompleted
-        case .completed:
-          task.isCompleted
-        case .conflicts:
-          true
-        }
-      }
-      .filter { task in
         query.isEmpty || task.title.localizedStandardContains(query)
           || task.notes?.localizedStandardContains(query) == true
-      }
-      .sorted { lhs, rhs in
-        if lhs.isCompleted != rhs.isCompleted {
-          return !lhs.isCompleted
-        }
-        if lhs.priority != rhs.priority {
-          return lhs.priority > rhs.priority
-        }
-        switch (lhs.dueAt, rhs.dueAt) {
-        case (let left?, let right?) where left != right:
-          return left < right
-        case (_?, nil):
-          return true
-        case (nil, _?):
-          return false
-        default:
-          return lhs.updatedAt > rhs.updatedAt
-        }
       }
   }
 
@@ -142,7 +103,8 @@ final class TaskStore {
         title: draft.normalizedTitle,
         notes: draft.normalizedNotes,
         priority: draft.priority.kotlinValue,
-        dueAt: draft.includesDueDate ? draft.dueAt.kotlinInstant : nil
+        dueDate: draft.dueDate,
+        dueAt: draft.dueAt
       )
     }
   }
@@ -158,7 +120,8 @@ final class TaskStore {
         title: draft.normalizedTitle,
         notes: draft.normalizedNotes,
         priority: draft.priority.kotlinValue,
-        dueAt: draft.includesDueDate ? draft.dueAt.kotlinInstant : nil,
+        dueDate: draft.dueDate,
+        dueAt: draft.dueAt,
         isCompleted: draft.isCompleted
       )
     }
@@ -210,7 +173,8 @@ final class TaskStore {
         title: draft.normalizedTitle,
         notes: draft.normalizedNotes,
         priority: draft.priority.kotlinValue,
-        dueAt: draft.includesDueDate ? draft.dueAt.kotlinInstant : nil,
+        dueDate: draft.dueDate,
+        dueAt: draft.dueAt,
         isCompleted: draft.isCompleted
       )
     }
@@ -231,6 +195,19 @@ final class TaskStore {
     tasks = snapshot.tasks.map(TaskRecord.init)
     conflicts = snapshot.conflicts.map(TaskConflictRecord.init)
     syncStatus = TaskSyncStatusValue(snapshot.syncStatus)
+  }
+
+  private func plannedTasks(for filter: TaskListFilter) -> [TaskRecord] {
+    guard let backend, let view = filter.kotlinValue else { return tasks }
+    let calendar = Calendar.current
+    let today = calendar.dateComponents([.year, .month, .day], from: Date())
+    return backend.plannedTasks(
+      view: view,
+      todayYear: Int32(today.year!),
+      todayMonth: Int32(today.month!),
+      todayDay: Int32(today.day!),
+      timeZoneId: calendar.timeZone.identifier
+    ).map(TaskRecord.init)
   }
 
   private func perform(
