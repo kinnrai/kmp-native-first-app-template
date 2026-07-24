@@ -1,10 +1,16 @@
 import SwiftUI
 
 @main
-struct iOSApp: App {
-    var body: some Scene {
-        WindowGroup {
-            ContentView()
+struct IOSApp: App {
+  @State private var store = TaskStore(databaseName: "ios-tasks.db")
+
+  var body: some Scene {
+    WindowGroup {
+      ContentView()
+        .environment(store)
+        .task {
+          await store.start()
         }
     }
+  }
 }

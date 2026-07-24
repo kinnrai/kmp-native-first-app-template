@@ -4,3 +4,6 @@ PRODUCT_NAME = KmpNativeFirstAppTemplate
 PRODUCT_BUNDLE_IDENTIFIER = com.example.kmpnativefirst
 STRING_CATALOG_GENERATE_SYMBOLS = YES
 OTHER_LDFLAGS = $(inherited) -lsqlite3
+
+// Local development default. Production apps should point this at an HTTPS service.
+TASK_API_BASE_URL = http:/$()/127.0.0.1:8080
