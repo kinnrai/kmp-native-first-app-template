@@ -2,6 +2,8 @@ package com.example.kmpnativefirst.task.ui
 
 import androidx.lifecycle.viewModelScope
 import com.example.kmpnativefirst.task.Task
+import com.example.kmpnativefirst.task.TaskLabel
+import com.example.kmpnativefirst.task.TaskLabelColor
 import com.example.kmpnativefirst.task.TaskPriority
 import com.example.kmpnativefirst.task.TaskProject
 import com.example.kmpnativefirst.task.TaskProjectColor
@@ -191,6 +193,57 @@ class TaskViewModelTest {
     }
 
     @Test
+    fun filtersByLabelAndPersistsTaskAssignments() = runTest(dispatcher) {
+        val work = labelItem("work", "Work", TaskLabelColor.BLUE)
+        val personal = labelItem("personal", "Personal", TaskLabelColor.GREEN)
+        val repository = FakeTaskRepository(
+            initialTasks = listOf(
+                taskItem("one", "Prepare release", labelIds = listOf(work.label.id)),
+                taskItem("two", "Buy groceries", labelIds = listOf(personal.label.id)),
+            ),
+            initialLabels = listOf(work, personal),
+        )
+        val viewModel = taskViewModel(repository)
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf("Work", "Personal"),
+            viewModel.uiState.value.labels.map { it.label.name },
+        )
+
+        viewModel.setLabelFilter(work.label.id)
+        advanceUntilIdle()
+        assertEquals(work.label.id, viewModel.uiState.value.selectedLabelId)
+        assertEquals(listOf("one"), viewModel.uiState.value.tasks.map { it.task.id })
+
+        viewModel.showCreateEditor()
+        viewModel.setEditorTitle("Review pull request")
+        viewModel.setEditorLabel(work.label.id, selected = true)
+        viewModel.saveEditor()
+        advanceUntilIdle()
+
+        val created = repository.tasks.value.first { it.task.title == "Review pull request" }
+        assertEquals(listOf(work.label.id), created.task.labelIds)
+
+        viewModel.showEditEditor(created.task.id)
+        viewModel.setEditorLabel(work.label.id, selected = false)
+        viewModel.saveEditor()
+        advanceUntilIdle()
+        assertTrue(
+            repository.tasks.value
+                .first { it.task.id == created.task.id }
+                .task.labelIds.isEmpty(),
+        )
+
+        viewModel.showEditEditor("one")
+        repository.deleteLabel(work.label.id)
+        advanceUntilIdle()
+        assertNull(viewModel.uiState.value.selectedLabelId)
+        assertTrue(viewModel.uiState.value.editor?.labelIds.isNullOrEmpty())
+        viewModel.viewModelScope.cancel()
+    }
+
+    @Test
     fun validatesCreatesEditsAndDeletesProjects() = runTest(dispatcher) {
         val repository = FakeTaskRepository()
         val viewModel = taskViewModel(repository)
@@ -269,6 +322,75 @@ class TaskViewModelTest {
 
         assertTrue(repository.projectConflicts.value.isEmpty())
         assertEquals("Remote", repository.projects.value.single().project.name)
+        viewModel.viewModelScope.cancel()
+    }
+
+    @Test
+    fun managesLabelsAndResolvesLabelConflicts() = runTest(dispatcher) {
+        val work = labelItem("work", "Work", TaskLabelColor.BLUE)
+        val conflicted = labelItem(
+            id = "conflicted",
+            name = "Local",
+            color = TaskLabelColor.ORANGE,
+            syncState = TaskSyncState.CONFLICT,
+        )
+        val remote = conflicted.label.copy(
+            name = "Remote",
+            color = TaskLabelColor.PURPLE,
+            revision = 2,
+        )
+        val repository = FakeTaskRepository(
+            initialLabels = listOf(work, conflicted),
+            initialLabelConflicts = listOf(
+                labelConflict(
+                    local = conflicted.label,
+                    remote = remote,
+                ),
+            ),
+        )
+        val viewModel = taskViewModel(repository)
+        advanceUntilIdle()
+
+        viewModel.showLabelManager()
+        assertTrue(viewModel.uiState.value.isManagingLabels)
+        viewModel.showCreateLabelEditor()
+        viewModel.saveLabel()
+        assertTrue(viewModel.uiState.value.labelEditor?.showValidationErrors == true)
+
+        viewModel.setLabelName("Release")
+        viewModel.setLabelColor(TaskLabelColor.ROSE)
+        viewModel.saveLabel()
+        advanceUntilIdle()
+
+        val created = repository.labels.value.first { it.label.name == "Release" }
+        assertEquals(TaskLabelColor.ROSE, created.label.color)
+        assertNull(viewModel.uiState.value.labelEditor)
+
+        viewModel.showEditLabelEditor(work.label.id)
+        viewModel.setLabelName("Team")
+        viewModel.saveLabel()
+        advanceUntilIdle()
+        assertEquals(
+            "Team",
+            repository.labels.value.first { it.label.id == work.label.id }.label.name,
+        )
+
+        viewModel.requestDeleteLabel(created.label.id)
+        assertNotNull(viewModel.uiState.value.labelPendingDeletion)
+        viewModel.confirmDeleteLabel()
+        advanceUntilIdle()
+        assertTrue(repository.labels.value.none { it.label.id == created.label.id })
+
+        viewModel.showLabelConflict(conflicted.label.id)
+        assertNotNull(viewModel.uiState.value.selectedLabelConflict)
+        viewModel.resolveSelectedLabelConflict(TaskLabelConflictResolution.UseRemote)
+        advanceUntilIdle()
+
+        assertTrue(repository.labelConflicts.value.isEmpty())
+        assertEquals(
+            "Remote",
+            repository.labels.value.first { it.label.id == conflicted.label.id }.label.name,
+        )
         viewModel.viewModelScope.cancel()
     }
 
@@ -400,6 +522,8 @@ private class FakeTaskRepository(
     initialConflicts: List<TaskConflict> = emptyList(),
     initialProjects: List<TaskProjectItem> = emptyList(),
     initialProjectConflicts: List<TaskProjectConflict> = emptyList(),
+    initialLabels: List<TaskLabelItem> = emptyList(),
+    initialLabelConflicts: List<TaskLabelConflict> = emptyList(),
     var syncResult: TaskSyncResult = TaskSyncResult.Success(0, 0, 0),
 ) : TaskRepository {
     private val mutableTasks = MutableStateFlow(initialTasks)
@@ -415,9 +539,13 @@ private class FakeTaskRepository(
     private val mutableProjectConflicts = MutableStateFlow(initialProjectConflicts)
     override val projectConflicts: StateFlow<List<TaskProjectConflict>> =
         mutableProjectConflicts.asStateFlow()
-    override val labels = MutableStateFlow<List<TaskLabelItem>>(emptyList())
-    override val labelConflicts =
-        MutableStateFlow<List<TaskLabelConflict>>(emptyList())
+
+    private val mutableLabels = MutableStateFlow(initialLabels)
+    override val labels: StateFlow<List<TaskLabelItem>> = mutableLabels.asStateFlow()
+
+    private val mutableLabelConflicts = MutableStateFlow(initialLabelConflicts)
+    override val labelConflicts: StateFlow<List<TaskLabelConflict>> =
+        mutableLabelConflicts.asStateFlow()
 
     private val mutableSyncStatus = MutableStateFlow(TaskSyncStatus())
     override val syncStatus: StateFlow<TaskSyncStatus> = mutableSyncStatus.asStateFlow()
@@ -595,21 +723,77 @@ private class FakeTaskRepository(
         }
     }
 
-    override suspend fun createLabel(draft: TaskLabelDraft) =
-        error("Label operations are outside this task view-model test.")
+    override suspend fun createLabel(draft: TaskLabelDraft): TaskLabel {
+        val id = "label-created-${mutableLabels.value.size}"
+        val label = TaskLabel(
+            id = id,
+            name = draft.name.trim(),
+            color = draft.color,
+            createdAt = NOW,
+            updatedAt = NOW,
+            revision = 1,
+        )
+        mutableLabels.value += TaskLabelItem(label, TaskSyncState.PENDING)
+        return label
+    }
 
     override suspend fun updateLabel(
         labelId: String,
         edit: TaskLabelEdit,
-    ) = error("Label operations are outside this task view-model test.")
+    ): TaskLabel {
+        val current = mutableLabels.value.first { it.label.id == labelId }
+        val updated = current.label.copy(
+            name = edit.name.trim(),
+            color = edit.color,
+            updatedAt = NOW,
+        )
+        mutableLabels.value = mutableLabels.value.map {
+            if (it.label.id == labelId) {
+                TaskLabelItem(updated, TaskSyncState.PENDING)
+            } else {
+                it
+            }
+        }
+        return updated
+    }
 
-    override suspend fun deleteLabel(labelId: String) =
-        error("Label operations are outside this task view-model test.")
+    override suspend fun deleteLabel(labelId: String) {
+        mutableLabels.value = mutableLabels.value.filterNot { it.label.id == labelId }
+        mutableTasks.value = mutableTasks.value.map { item ->
+            if (labelId in item.task.labelIds) {
+                item.copy(
+                    task = item.task.copy(labelIds = item.task.labelIds - labelId),
+                    syncState = TaskSyncState.PENDING,
+                )
+            } else {
+                item
+            }
+        }
+    }
 
     override suspend fun resolveLabelConflict(
         labelId: String,
         resolution: TaskLabelConflictResolution,
-    ) = error("Label operations are outside this task view-model test.")
+    ) {
+        val conflict = mutableLabelConflicts.value.first { it.labelId == labelId }
+        val selected = when (resolution) {
+            TaskLabelConflictResolution.KeepLocal -> conflict.local
+            TaskLabelConflictResolution.UseRemote -> conflict.remote
+            is TaskLabelConflictResolution.Merge -> conflict.local?.copy(
+                name = resolution.edit.name,
+                color = resolution.edit.color,
+            )
+        }
+        mutableLabels.value = mutableLabels.value
+            .filterNot { it.label.id == labelId }
+            .let { remaining ->
+                selected?.let {
+                    remaining + TaskLabelItem(it, TaskSyncState.SYNCED)
+                } ?: remaining
+            }
+        mutableLabelConflicts.value =
+            mutableLabelConflicts.value.filterNot { it.labelId == labelId }
+    }
 
     override suspend fun sync(): TaskSyncResult {
         syncCalls += 1
@@ -635,6 +819,7 @@ private fun taskItem(
     id: String,
     title: String,
     projectId: String? = null,
+    labelIds: List<String> = emptyList(),
     dueDate: LocalDate? = null,
     dueAt: Instant? = null,
     isCompleted: Boolean = false,
@@ -644,6 +829,7 @@ private fun taskItem(
         id = id,
         title = title,
         projectId = projectId,
+        labelIds = labelIds,
         dueDate = dueDate,
         dueAt = dueAt,
         isCompleted = isCompleted,
@@ -709,5 +895,37 @@ private fun conflict(
     local = local,
     remote = remote,
     conflictingFields = setOf(TaskConflictField.TITLE),
+    detectedAt = NOW,
+)
+
+private fun labelItem(
+    id: String,
+    name: String,
+    color: TaskLabelColor,
+    syncState: TaskSyncState = TaskSyncState.SYNCED,
+): TaskLabelItem = TaskLabelItem(
+    label = TaskLabel(
+        id = id,
+        name = name,
+        color = color,
+        createdAt = NOW,
+        updatedAt = NOW,
+        revision = 1,
+    ),
+    syncState = syncState,
+)
+
+private fun labelConflict(
+    local: TaskLabel?,
+    remote: TaskLabel?,
+): TaskLabelConflict = TaskLabelConflict(
+    labelId = requireNotNull(local ?: remote).id,
+    mutationKind = TaskMutationKind.UPDATE,
+    base = local,
+    local = local,
+    remote = remote,
+    conflictingFields = setOf(
+        com.example.kmpnativefirst.task.data.TaskLabelConflictField.NAME,
+    ),
     detectedAt = NOW,
 )

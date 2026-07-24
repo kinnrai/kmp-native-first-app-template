@@ -92,6 +92,7 @@ import com.example.kmpnativefirst.task.TaskSmartView
 import com.example.kmpnativefirst.task.data.TaskConflict
 import com.example.kmpnativefirst.task.data.TaskConflictResolution
 import com.example.kmpnativefirst.task.data.TaskItem
+import com.example.kmpnativefirst.task.data.TaskLabelItem
 import com.example.kmpnativefirst.task.data.TaskProjectConflictResolution
 import com.example.kmpnativefirst.task.data.TaskProjectItem
 import com.example.kmpnativefirst.task.data.TaskRepository
@@ -120,6 +121,8 @@ import kmpnativefirstapptemplate.app.sharedui.generated.resources.empty_complete
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.empty_completed_title
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.empty_inbox_body
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.empty_inbox_title
+import kmpnativefirstapptemplate.app.sharedui.generated.resources.empty_label_body
+import kmpnativefirstapptemplate.app.sharedui.generated.resources.empty_label_title
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.empty_project_body
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.empty_project_title
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.empty_search_body
@@ -130,7 +133,9 @@ import kmpnativefirstapptemplate.app.sharedui.generated.resources.empty_upcoming
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.empty_upcoming_title
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.initialization_failed
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.keep_this_device
+import kmpnativefirstapptemplate.app.sharedui.generated.resources.label_conflicts_waiting
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.mark_completed
+import kmpnativefirstapptemplate.app.sharedui.generated.resources.manage_labels
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.new_task
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.operation_failed
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.operation_failed_without_detail
@@ -155,6 +160,8 @@ import kmpnativefirstapptemplate.app.sharedui.generated.resources.task_conflict
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.task_deleted
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.task_notes_label
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.task_notes_too_long
+import kmpnativefirstapptemplate.app.sharedui.generated.resources.task_labels_empty
+import kmpnativefirstapptemplate.app.sharedui.generated.resources.task_labels_label
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.task_pending
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.task_priority_label
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.task_title_label
@@ -200,6 +207,7 @@ fun TaskApp(
             changeSearchQuery = viewModel::setSearchQuery,
             changeView = viewModel::setView,
             changeProject = viewModel::setProject,
+            changeLabelFilter = viewModel::setLabelFilter,
             createTask = viewModel::showCreateEditor,
             editTask = viewModel::showEditEditor,
             toggleCompleted = viewModel::toggleCompleted,
@@ -213,6 +221,20 @@ fun TaskApp(
             showConflict = viewModel::showConflict,
             dismissConflict = viewModel::dismissConflict,
             resolveConflict = viewModel::resolveSelectedConflict,
+            showLabelManager = viewModel::showLabelManager,
+            dismissLabelManager = viewModel::dismissLabelManager,
+            createLabel = viewModel::showCreateLabelEditor,
+            editLabel = viewModel::showEditLabelEditor,
+            dismissLabelEditor = viewModel::dismissLabelEditor,
+            changeLabelName = viewModel::setLabelName,
+            changeLabelColor = viewModel::setLabelColor,
+            saveLabel = viewModel::saveLabel,
+            requestDeleteLabel = viewModel::requestDeleteLabel,
+            cancelDeleteLabel = viewModel::cancelDeleteLabel,
+            confirmDeleteLabel = viewModel::confirmDeleteLabel,
+            showLabelConflict = viewModel::showLabelConflict,
+            dismissLabelConflict = viewModel::dismissLabelConflict,
+            resolveLabelConflict = viewModel::resolveSelectedLabelConflict,
             dismissEditor = viewModel::dismissEditor,
             changeEditorTitle = viewModel::setEditorTitle,
             changeEditorNotes = viewModel::setEditorNotes,
@@ -220,6 +242,7 @@ fun TaskApp(
             changeEditorPriority = viewModel::setEditorPriority,
             changeEditorDueDate = viewModel::setEditorDueDate,
             changeEditorCompleted = viewModel::setEditorCompleted,
+            changeEditorLabel = viewModel::setEditorLabel,
             saveEditor = viewModel::saveEditor,
             createProject = viewModel::showCreateProjectEditor,
             editProject = viewModel::showEditProjectEditor,
@@ -417,6 +440,11 @@ internal fun TaskScreen(
             },
         )
     }
+
+    TaskLabelDialogs(
+        state = state,
+        actions = actions,
+    )
 }
 
 @Composable
@@ -456,6 +484,13 @@ private fun TaskContentScaffold(
                     }
                 },
                 actions = {
+                    TextButton(
+                        onClick = actions.showLabelManager,
+                        enabled = !state.isInitializing,
+                        modifier = Modifier.testTag(TaskUiTags.LABELS_BUTTON),
+                    ) {
+                        Text(stringResource(Res.string.manage_labels))
+                    }
                     FilledTonalButton(
                         onClick = actions.synchronize,
                         enabled = !state.isInitializing &&
@@ -483,13 +518,15 @@ private fun TaskContentScaffold(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = actions.createTask,
-                modifier = Modifier
-                    .navigationBarsPadding()
-                    .testTag(TaskUiTags.NEW_TASK),
-            ) {
-                Text("+  ${stringResource(Res.string.new_task)}")
+            AnimatedVisibility(state.editor == null) {
+                ExtendedFloatingActionButton(
+                    onClick = actions.createTask,
+                    modifier = Modifier
+                        .navigationBarsPadding()
+                        .testTag(TaskUiTags.NEW_TASK),
+                ) {
+                    Text("+  ${stringResource(Res.string.new_task)}")
+                }
             }
         },
     ) { contentPadding ->
@@ -509,11 +546,13 @@ private fun TaskContentScaffold(
                     onRetryInitialization = actions.retryInitialization,
                     onSearchQueryChange = actions.changeSearchQuery,
                     onViewChange = actions.changeView,
+                    onLabelFilterChange = actions.changeLabelFilter,
                     onEditTask = actions.editTask,
                     onToggleCompleted = actions.toggleCompleted,
                     onRequestDelete = actions.requestDelete,
                     onRequestClearCompleted = actions.requestClearCompleted,
                     onShowConflict = actions.showConflict,
+                    onShowLabelConflict = actions.showLabelConflict,
                     modifier = Modifier
                         .weight(1f)
                         .widthIn(max = if (showEditorPane) 900.dp else 1040.dp),
@@ -532,6 +571,7 @@ private fun TaskContentScaffold(
                             TaskEditor(
                                 editor = editor,
                                 projects = state.projects,
+                                labels = state.labels,
                                 onDismiss = actions.dismissEditor,
                                 onTitleChange = actions.changeEditorTitle,
                                 onNotesChange = actions.changeEditorNotes,
@@ -539,6 +579,7 @@ private fun TaskContentScaffold(
                                 onPriorityChange = actions.changeEditorPriority,
                                 onDueDateChange = actions.changeEditorDueDate,
                                 onCompletedChange = actions.changeEditorCompleted,
+                                onLabelChange = actions.changeEditorLabel,
                                 onSave = actions.saveEditor,
                                 onDelete = {
                                     editor.taskId?.let(actions.requestDelete)
@@ -554,6 +595,7 @@ private fun TaskContentScaffold(
                 TaskEditorDialog(
                     editor = state.editor,
                     projects = state.projects,
+                    labels = state.labels,
                     onDismiss = actions.dismissEditor,
                     onTitleChange = actions.changeEditorTitle,
                     onNotesChange = actions.changeEditorNotes,
@@ -561,6 +603,7 @@ private fun TaskContentScaffold(
                     onPriorityChange = actions.changeEditorPriority,
                     onDueDateChange = actions.changeEditorDueDate,
                     onCompletedChange = actions.changeEditorCompleted,
+                    onLabelChange = actions.changeEditorLabel,
                     onSave = actions.saveEditor,
                     onDelete = {
                         state.editor.taskId?.let(actions.requestDelete)
@@ -577,15 +620,20 @@ private fun TaskListPane(
     onRetryInitialization: () -> Unit,
     onSearchQueryChange: (String) -> Unit,
     onViewChange: (TaskSmartView) -> Unit,
+    onLabelFilterChange: (String?) -> Unit,
     onEditTask: (String) -> Unit,
     onToggleCompleted: (String) -> Unit,
     onRequestDelete: (String) -> Unit,
     onRequestClearCompleted: () -> Unit,
     onShowConflict: (String) -> Unit,
+    onShowLabelConflict: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val projectsById = remember(state.projects) {
         state.projects.associateBy { it.project.id }
+    }
+    val labelsById = remember(state.labels) {
+        state.labels.associateBy { it.label.id }
     }
     Column(
         modifier = modifier
@@ -639,9 +687,17 @@ private fun TaskListPane(
             }
         }
 
+        TaskLabelFilters(
+            labels = state.labels,
+            selectedLabelId = state.selectedLabelId,
+            onSelectionChange = onLabelFilterChange,
+            modifier = Modifier.padding(bottom = 12.dp),
+        )
+
         SyncSummary(
             state = state,
             onShowConflict = onShowConflict,
+            onShowLabelConflict = onShowLabelConflict,
         )
 
         when {
@@ -660,6 +716,7 @@ private fun TaskListPane(
                     view = state.view,
                     isProject = state.selectedProjectId != null,
                     hasSearchQuery = state.searchQuery.isNotBlank(),
+                    hasLabelFilter = state.selectedLabelId != null,
                 )
             }
 
@@ -678,6 +735,7 @@ private fun TaskListPane(
                         TaskRow(
                             item = item,
                             project = item.task.projectId?.let(projectsById::get),
+                            labelsById = labelsById,
                             index = index,
                             count = state.tasks.size,
                             onToggleCompleted = onToggleCompleted,
@@ -696,6 +754,7 @@ private fun TaskListPane(
 private fun SyncSummary(
     state: TaskUiState,
     onShowConflict: (String) -> Unit,
+    onShowLabelConflict: (String) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -749,6 +808,36 @@ private fun SyncSummary(
                 }
             }
         }
+        AnimatedVisibility(state.labelConflicts.isNotEmpty()) {
+            Surface(
+                onClick = {
+                    state.labelConflicts.firstOrNull()?.labelId?.let(onShowLabelConflict)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.tertiaryContainer,
+                contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        stringResource(
+                            Res.string.label_conflicts_waiting,
+                            state.labelConflicts.size,
+                        ),
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        stringResource(Res.string.review),
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -778,6 +867,7 @@ private fun StatusSurface(
 private fun TaskRow(
     item: TaskItem,
     project: TaskProjectItem?,
+    labelsById: Map<String, TaskLabelItem>,
     index: Int,
     count: Int,
     onToggleCompleted: (String) -> Unit,
@@ -813,6 +903,7 @@ private fun TaskRow(
             TaskSupportingText(
                 item = item,
                 project = project,
+                labelsById = labelsById,
             )
         },
         leadingContent = {
@@ -844,6 +935,7 @@ private fun TaskRow(
 private fun TaskSupportingText(
     item: TaskItem,
     project: TaskProjectItem?,
+    labelsById: Map<String, TaskLabelItem>,
 ) {
     val task = item.task
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -854,6 +946,10 @@ private fun TaskSupportingText(
                 overflow = TextOverflow.Ellipsis,
             )
         }
+        TaskLabelBadges(
+            labelIds = task.labelIds,
+            labelsById = labelsById,
+        )
         Row(
             modifier = Modifier.horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -933,6 +1029,7 @@ private fun EmptyTasks(
     view: TaskSmartView,
     isProject: Boolean,
     hasSearchQuery: Boolean,
+    hasLabelFilter: Boolean,
 ) {
     val title: StringResource
     val body: StringResource
@@ -942,6 +1039,9 @@ private fun EmptyTasks(
     } else if (isProject) {
         title = Res.string.empty_project_title
         body = Res.string.empty_project_body
+    } else if (hasLabelFilter) {
+        title = Res.string.empty_label_title
+        body = Res.string.empty_label_body
     } else {
         when (view) {
             TaskSmartView.ALL -> {
@@ -996,6 +1096,7 @@ private fun EmptyTasks(
 private fun TaskEditorDialog(
     editor: TaskEditorUiState,
     projects: List<TaskProjectItem>,
+    labels: List<TaskLabelItem>,
     onDismiss: () -> Unit,
     onTitleChange: (String) -> Unit,
     onNotesChange: (String) -> Unit,
@@ -1003,6 +1104,7 @@ private fun TaskEditorDialog(
     onPriorityChange: (TaskPriority) -> Unit,
     onDueDateChange: (LocalDate?) -> Unit,
     onCompletedChange: (Boolean) -> Unit,
+    onLabelChange: (String, Boolean) -> Unit,
     onSave: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -1011,6 +1113,7 @@ private fun TaskEditorDialog(
             modifier = Modifier
                 .widthIn(max = 620.dp)
                 .fillMaxWidth()
+                .fillMaxHeight(0.9f)
                 .imePadding(),
             shape = MaterialTheme.shapes.extraLarge,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -1019,6 +1122,7 @@ private fun TaskEditorDialog(
             TaskEditor(
                 editor = editor,
                 projects = projects,
+                labels = labels,
                 onDismiss = onDismiss,
                 onTitleChange = onTitleChange,
                 onNotesChange = onNotesChange,
@@ -1026,6 +1130,7 @@ private fun TaskEditorDialog(
                 onPriorityChange = onPriorityChange,
                 onDueDateChange = onDueDateChange,
                 onCompletedChange = onCompletedChange,
+                onLabelChange = onLabelChange,
                 onSave = onSave,
                 onDelete = onDelete,
                 modifier = Modifier.padding(24.dp),
@@ -1038,6 +1143,7 @@ private fun TaskEditorDialog(
 private fun TaskEditor(
     editor: TaskEditorUiState,
     projects: List<TaskProjectItem>,
+    labels: List<TaskLabelItem>,
     onDismiss: () -> Unit,
     onTitleChange: (String) -> Unit,
     onNotesChange: (String) -> Unit,
@@ -1045,6 +1151,7 @@ private fun TaskEditor(
     onPriorityChange: (TaskPriority) -> Unit,
     onDueDateChange: (LocalDate?) -> Unit,
     onCompletedChange: (Boolean) -> Unit,
+    onLabelChange: (String, Boolean) -> Unit,
     onSave: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
@@ -1138,6 +1245,24 @@ private fun TaskEditor(
                     },
                 )
             }
+        }
+
+        Text(
+            stringResource(Res.string.task_labels_label),
+            style = MaterialTheme.typography.labelLarge,
+        )
+        if (labels.isEmpty()) {
+            Text(
+                stringResource(Res.string.task_labels_empty),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        } else {
+            TaskLabelSelector(
+                labels = labels,
+                selectedLabelIds = editor.labelIds,
+                onSelectionChange = onLabelChange,
+            )
         }
 
         Row(
@@ -1376,8 +1501,23 @@ internal object TaskUiTags {
     const val PROJECT_EDITOR = "project-editor"
     const val PROJECT_EDITOR_NAME = "project-editor-name"
     const val PROJECT_EDITOR_SAVE = "project-editor-save"
+    const val LABELS_BUTTON = "labels-button"
+    const val ALL_LABELS = "all-labels"
+    const val LABEL_MANAGER = "label-manager"
+    const val ADD_LABEL = "add-label"
+    const val LABEL_NAME = "label-name"
+    const val LABEL_SAVE = "label-save"
 
     fun task(id: String): String = "task-$id"
+
+    fun labelFilter(id: String): String = "label-filter-$id"
+
+    fun editorLabel(id: String): String = "task-editor-label-$id"
+
+    fun labelRow(id: String): String = "label-row-$id"
+
+    fun labelColor(color: com.example.kmpnativefirst.task.TaskLabelColor): String =
+        "label-color-${color.name.lowercase()}"
 
     fun project(id: String): String = "project-$id"
 }

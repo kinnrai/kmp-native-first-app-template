@@ -2,14 +2,21 @@ package com.example.kmpnativefirst.task.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.kmpnativefirst.task.TaskLabelColor
 import com.example.kmpnativefirst.task.TaskPlanning
 import com.example.kmpnativefirst.task.TaskPriority
 import com.example.kmpnativefirst.task.TaskProjectColor
 import com.example.kmpnativefirst.task.TaskSmartView
+import com.example.kmpnativefirst.task.data.TaskConflict
 import com.example.kmpnativefirst.task.data.TaskConflictResolution
 import com.example.kmpnativefirst.task.data.TaskDraft
 import com.example.kmpnativefirst.task.data.TaskEdit
 import com.example.kmpnativefirst.task.data.TaskItem
+import com.example.kmpnativefirst.task.data.TaskLabelConflict
+import com.example.kmpnativefirst.task.data.TaskLabelConflictResolution
+import com.example.kmpnativefirst.task.data.TaskLabelDraft
+import com.example.kmpnativefirst.task.data.TaskLabelEdit
+import com.example.kmpnativefirst.task.data.TaskLabelItem
 import com.example.kmpnativefirst.task.data.TaskProjectConflict
 import com.example.kmpnativefirst.task.data.TaskProjectConflictResolution
 import com.example.kmpnativefirst.task.data.TaskProjectDraft
@@ -44,6 +51,7 @@ class TaskViewModel(
     private var initializationJob: Job? = null
     private var latestTasks: List<TaskItem> = emptyList()
     private var latestProjects: List<TaskProjectItem> = emptyList()
+    private var latestLabels: List<TaskLabelItem> = emptyList()
     private var nextNoticeId = 0L
 
     init {
@@ -72,6 +80,10 @@ class TaskViewModel(
         listPreferences.update { it.copy(searchQuery = query) }
     }
 
+    fun setLabelFilter(labelId: String?) {
+        listPreferences.update { it.copy(labelId = labelId) }
+    }
+
     fun showCreateEditor() {
         val selectedProjectId = listPreferences.value.selectedProjectId
             ?.takeIf { selected ->
@@ -93,6 +105,7 @@ class TaskViewModel(
                 editor = TaskEditorUiState(
                     taskId = task.id,
                     projectId = task.projectId,
+                    labelIds = task.labelIds,
                     title = task.title,
                     notes = task.notes.orEmpty(),
                     priority = task.priority,
@@ -143,6 +156,22 @@ class TaskViewModel(
         updateEditor { copy(isCompleted = isCompleted) }
     }
 
+    fun setEditorLabel(
+        labelId: String,
+        selected: Boolean,
+    ) {
+        if (latestLabels.none { it.label.id == labelId }) return
+        updateEditor {
+            copy(
+                labelIds = if (selected) {
+                    (labelIds + labelId).distinct()
+                } else {
+                    labelIds - labelId
+                },
+            )
+        }
+    }
+
     fun saveEditor() {
         val editor = mutableUiState.value.editor ?: return
         if (!editor.canSave) {
@@ -160,6 +189,7 @@ class TaskViewModel(
                             title = editor.title,
                             notes = editor.notes,
                             projectId = editor.projectId,
+                            labelIds = editor.labelIds,
                             priority = editor.priority,
                             dueDate = editor.dueDate,
                             dueAt = editor.dueAt,
@@ -172,6 +202,7 @@ class TaskViewModel(
                             title = editor.title,
                             notes = editor.notes,
                             projectId = editor.projectId,
+                            labelIds = editor.labelIds,
                             priority = editor.priority,
                             dueDate = editor.dueDate.takeIf { editor.dueAt == null },
                             dueAt = editor.dueAt,
@@ -394,6 +425,142 @@ class TaskViewModel(
         }
     }
 
+    fun showLabelManager() {
+        mutableUiState.update { it.copy(isManagingLabels = true) }
+    }
+
+    fun dismissLabelManager() {
+        if (mutableUiState.value.labelEditor?.isSaving == true) return
+        mutableUiState.update {
+            it.copy(
+                isManagingLabels = false,
+                labelEditor = null,
+            )
+        }
+    }
+
+    fun showCreateLabelEditor() {
+        mutableUiState.update {
+            it.copy(
+                isManagingLabels = true,
+                labelEditor = TaskLabelEditorUiState(),
+            )
+        }
+    }
+
+    fun showEditLabelEditor(labelId: String) {
+        val label = latestLabels.firstOrNull { it.label.id == labelId }?.label ?: return
+        mutableUiState.update {
+            it.copy(
+                isManagingLabels = true,
+                labelEditor = TaskLabelEditorUiState(
+                    labelId = label.id,
+                    name = label.name,
+                    color = label.color,
+                ),
+            )
+        }
+    }
+
+    fun dismissLabelEditor() {
+        if (mutableUiState.value.labelEditor?.isSaving == true) return
+        mutableUiState.update { it.copy(labelEditor = null) }
+    }
+
+    fun setLabelName(name: String) {
+        updateLabelEditor { copy(name = name) }
+    }
+
+    fun setLabelColor(color: TaskLabelColor) {
+        updateLabelEditor { copy(color = color) }
+    }
+
+    fun saveLabel() {
+        val editor = mutableUiState.value.labelEditor ?: return
+        if (!editor.canSave) {
+            updateLabelEditor { copy(showValidationErrors = true) }
+            return
+        }
+        val currentRepository = repository ?: return
+
+        viewModelScope.launch {
+            updateLabelEditor { copy(isSaving = true) }
+            try {
+                if (editor.labelId == null) {
+                    currentRepository.createLabel(
+                        TaskLabelDraft(
+                            name = editor.name,
+                            color = editor.color,
+                        ),
+                    )
+                } else {
+                    currentRepository.updateLabel(
+                        labelId = editor.labelId,
+                        edit = TaskLabelEdit(
+                            name = editor.name,
+                            color = editor.color,
+                        ),
+                    )
+                }
+                mutableUiState.update { current ->
+                    if (current.labelEditor?.labelId == editor.labelId) {
+                        current.copy(labelEditor = null)
+                    } else {
+                        current
+                    }
+                }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Throwable) {
+                updateLabelEditor { copy(isSaving = false) }
+                publishFailure(TaskOperation.SAVE_LABEL, error)
+            }
+        }
+    }
+
+    fun requestDeleteLabel(labelId: String) {
+        val label = latestLabels.firstOrNull { it.label.id == labelId } ?: return
+        mutableUiState.update { it.copy(labelPendingDeletion = label) }
+    }
+
+    fun cancelDeleteLabel() {
+        mutableUiState.update { it.copy(labelPendingDeletion = null) }
+    }
+
+    fun confirmDeleteLabel() {
+        val labelId = mutableUiState.value.labelPendingDeletion?.label?.id ?: return
+        mutableUiState.update {
+            it.copy(
+                labelPendingDeletion = null,
+                labelEditor = it.labelEditor?.takeUnless { editor ->
+                    editor.labelId == labelId
+                },
+            )
+        }
+        perform(TaskOperation.DELETE_LABEL) {
+            deleteLabel(labelId)
+        }
+    }
+
+    fun showLabelConflict(labelId: String) {
+        val conflict = mutableUiState.value.labelConflicts
+            .firstOrNull { it.labelId == labelId }
+            ?: return
+        mutableUiState.update { it.copy(selectedLabelConflict = conflict) }
+    }
+
+    fun dismissLabelConflict() {
+        mutableUiState.update { it.copy(selectedLabelConflict = null) }
+    }
+
+    fun resolveSelectedLabelConflict(resolution: TaskLabelConflictResolution) {
+        val labelId = mutableUiState.value.selectedLabelConflict?.labelId ?: return
+        mutableUiState.update { it.copy(selectedLabelConflict = null) }
+        perform(TaskOperation.RESOLVE_LABEL_CONFLICT) {
+            resolveLabelConflict(labelId, resolution)
+        }
+    }
+
     fun synchronize() {
         synchronize(notifyOnSuccess = true)
     }
@@ -477,80 +644,114 @@ class TaskViewModel(
 
     private fun observeRepository(createdRepository: TaskRepository) {
         viewModelScope.launch {
-            combine(
+            val projectContent = combine(
                 createdRepository.tasks,
                 createdRepository.conflicts,
                 createdRepository.projects,
                 createdRepository.projectConflicts,
-                createdRepository.syncStatus,
-            ) { tasks, conflicts, projects, projectConflicts, syncStatus ->
+            ) { tasks, conflicts, projects, projectConflicts ->
                 TaskRepositorySnapshot(
                     tasks = tasks,
                     conflicts = conflicts,
                     projects = projects,
                     projectConflicts = projectConflicts,
-                    syncStatus = syncStatus,
                 )
-            }.combine(listPreferences) { repositorySnapshot, preferences ->
-                val tasks = repositorySnapshot.tasks
-                val projects = repositorySnapshot.projects
-                latestTasks = tasks
-                latestProjects = projects
+            }
+            val labelContent = combine(
+                createdRepository.labels,
+                createdRepository.labelConflicts,
+            ) { labels, labelConflicts ->
+                TaskLabelRepositoryContent(
+                    labels = labels,
+                    labelConflicts = labelConflicts,
+                )
+            }
+            val content = combine(
+                projectContent,
+                labelContent,
+            ) { repositorySnapshot, labels ->
+                TaskRepositoryContent(
+                    tasks = repositorySnapshot.tasks,
+                    conflicts = repositorySnapshot.conflicts,
+                    projects = repositorySnapshot.projects,
+                    projectConflicts = repositorySnapshot.projectConflicts,
+                    labels = labels.labels,
+                    labelConflicts = labels.labelConflicts,
+                )
+            }
+            combine(
+                content,
+                createdRepository.syncStatus,
+                listPreferences,
+            ) { repositoryContent, syncStatus, preferences ->
                 val selectedProjectId = preferences.selectedProjectId
                     ?.takeIf { selected ->
-                        projects.any { it.project.id == selected }
+                        repositoryContent.projects.any { it.project.id == selected }
                     }
+                val selectedLabelId = preferences.labelId?.takeIf { labelId ->
+                    repositoryContent.labels.any { it.label.id == labelId }
+                }
                 val countScope = selectedProjectId?.let { projectId ->
-                    tasks.filter { it.task.projectId == projectId }
-                } ?: tasks
+                    repositoryContent.tasks.filter { it.task.projectId == projectId }
+                } ?: repositoryContent.tasks
                 TaskListSnapshot(
-                    tasks = tasks.visibleFor(
-                        preferences = preferences,
+                    allTasks = repositoryContent.tasks,
+                    tasks = repositoryContent.tasks.visibleFor(
+                        preferences = preferences.copy(labelId = selectedLabelId),
                         selectedProjectId = selectedProjectId,
                         today = todayProvider(),
                         timeZone = timeZone,
                     ),
+                    labels = repositoryContent.labels,
                     view = preferences.view,
                     selectedProjectId = selectedProjectId,
                     searchQuery = preferences.searchQuery,
+                    selectedLabelId = selectedLabelId,
                     activeCount = countScope.count { !it.task.isCompleted },
                     completedCount = countScope.count { it.task.isCompleted },
-                    projects = projects,
-                    projectTaskCounts = tasks
+                    projects = repositoryContent.projects,
+                    projectTaskCounts = repositoryContent.tasks
                         .asSequence()
                         .filterNot { it.task.isCompleted }
                         .mapNotNull { it.task.projectId }
                         .groupingBy { it }
                         .eachCount(),
-                    conflicts = repositorySnapshot.conflicts,
-                    projectConflicts = repositorySnapshot.projectConflicts,
-                    syncStatus = repositorySnapshot.syncStatus,
+                    conflicts = repositoryContent.conflicts,
+                    projectConflicts = repositoryContent.projectConflicts,
+                    labelConflicts = repositoryContent.labelConflicts,
+                    syncStatus = syncStatus,
                 )
             }.collect { snapshot ->
+                latestTasks = snapshot.allTasks
+                latestProjects = snapshot.projects
+                latestLabels = snapshot.labels
                 mutableUiState.update { current ->
                     val projectIds = snapshot.projects
                         .mapTo(mutableSetOf()) { it.project.id }
+                    val currentLabelIds = snapshot.labels
+                        .mapTo(mutableSetOf()) { it.label.id }
                     current.copy(
                         tasks = snapshot.tasks,
+                        labels = snapshot.labels,
                         view = snapshot.view,
                         selectedProjectId = snapshot.selectedProjectId,
                         searchQuery = snapshot.searchQuery,
+                        selectedLabelId = snapshot.selectedLabelId,
                         activeCount = snapshot.activeCount,
                         completedCount = snapshot.completedCount,
                         projects = snapshot.projects,
                         projectTaskCounts = snapshot.projectTaskCounts,
                         conflicts = snapshot.conflicts,
                         projectConflicts = snapshot.projectConflicts,
+                        labelConflicts = snapshot.labelConflicts,
                         syncStatus = snapshot.syncStatus,
                         editor = current.editor?.let { editor ->
-                            if (
-                                editor.projectId == null ||
-                                editor.projectId in projectIds
-                            ) {
-                                editor
-                            } else {
-                                editor.copy(projectId = null)
-                            }
+                            editor.copy(
+                                projectId = editor.projectId
+                                    ?.takeIf(projectIds::contains),
+                                labelIds = editor.labelIds
+                                    .filter(currentLabelIds::contains),
+                            )
                         },
                         projectEditor = current.projectEditor?.takeIf { editor ->
                             editor.projectId == null || editor.projectId in projectIds
@@ -565,6 +766,21 @@ class TaskViewModel(
                             ?.let { selected ->
                                 snapshot.projectConflicts.firstOrNull {
                                     it.projectId == selected.projectId
+                                }
+                            },
+                        selectedLabelConflict = current.selectedLabelConflict
+                            ?.let { selected ->
+                                snapshot.labelConflicts.firstOrNull {
+                                    it.labelId == selected.labelId
+                                }
+                            },
+                        labelEditor = current.labelEditor?.takeIf { editor ->
+                            editor.labelId == null || editor.labelId in currentLabelIds
+                        },
+                        labelPendingDeletion = current.labelPendingDeletion
+                            ?.let { pending ->
+                                snapshot.labels.firstOrNull {
+                                    it.label.id == pending.label.id
                                 }
                             },
                     )
@@ -605,6 +821,16 @@ class TaskViewModel(
         }
     }
 
+    private fun updateLabelEditor(
+        update: TaskLabelEditorUiState.() -> TaskLabelEditorUiState,
+    ) {
+        mutableUiState.update { state ->
+            state.labelEditor?.let {
+                state.copy(labelEditor = it.update())
+            } ?: state
+        }
+    }
+
     private fun publishFailure(
         operation: TaskOperation,
         error: Throwable,
@@ -629,27 +855,45 @@ private data class TaskListPreferences(
     val view: TaskSmartView = TaskSmartView.INBOX,
     val selectedProjectId: String? = null,
     val searchQuery: String = "",
+    val labelId: String? = null,
+)
+
+private data class TaskRepositoryContent(
+    val tasks: List<TaskItem>,
+    val conflicts: List<TaskConflict>,
+    val projects: List<TaskProjectItem>,
+    val projectConflicts: List<TaskProjectConflict>,
+    val labels: List<TaskLabelItem>,
+    val labelConflicts: List<TaskLabelConflict>,
+)
+
+private data class TaskLabelRepositoryContent(
+    val labels: List<TaskLabelItem>,
+    val labelConflicts: List<TaskLabelConflict>,
 )
 
 private data class TaskRepositorySnapshot(
     val tasks: List<TaskItem>,
-    val conflicts: List<com.example.kmpnativefirst.task.data.TaskConflict>,
+    val conflicts: List<TaskConflict>,
     val projects: List<TaskProjectItem>,
     val projectConflicts: List<TaskProjectConflict>,
-    val syncStatus: TaskSyncStatus,
 )
 
 private data class TaskListSnapshot(
+    val allTasks: List<TaskItem>,
     val tasks: List<TaskItem>,
+    val labels: List<TaskLabelItem>,
     val view: TaskSmartView,
     val selectedProjectId: String?,
     val searchQuery: String,
+    val selectedLabelId: String?,
     val activeCount: Int,
     val completedCount: Int,
     val projects: List<TaskProjectItem>,
     val projectTaskCounts: Map<String, Int>,
-    val conflicts: List<com.example.kmpnativefirst.task.data.TaskConflict>,
+    val conflicts: List<TaskConflict>,
     val projectConflicts: List<TaskProjectConflict>,
+    val labelConflicts: List<TaskLabelConflict>,
     val syncStatus: TaskSyncStatus,
 )
 
@@ -677,6 +921,8 @@ private fun List<TaskItem>.visibleFor(
         val matchesQuery = normalizedQuery.isEmpty() ||
             item.task.title.contains(normalizedQuery, ignoreCase = true) ||
             item.task.notes?.contains(normalizedQuery, ignoreCase = true) == true
-        matchesQuery
+        val matchesLabel = preferences.labelId == null ||
+            preferences.labelId in item.task.labelIds
+        matchesQuery && matchesLabel
     }
 }

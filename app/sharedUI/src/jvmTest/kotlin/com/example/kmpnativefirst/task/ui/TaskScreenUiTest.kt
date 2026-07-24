@@ -11,21 +11,28 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runComposeUiTest
+import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import androidx.compose.ui.unit.dp
 import com.example.kmpnativefirst.task.Task
+import com.example.kmpnativefirst.task.TaskLabel
+import com.example.kmpnativefirst.task.TaskLabelColor
 import com.example.kmpnativefirst.task.TaskPriority
 import com.example.kmpnativefirst.task.TaskProject
 import com.example.kmpnativefirst.task.TaskProjectColor
 import com.example.kmpnativefirst.task.TaskSmartView
 import com.example.kmpnativefirst.task.data.TaskItem
+import com.example.kmpnativefirst.task.data.TaskLabelItem
 import com.example.kmpnativefirst.task.data.TaskProjectItem
 import com.example.kmpnativefirst.task.data.TaskSyncState
 import kotlin.test.Test
@@ -60,7 +67,15 @@ class TaskScreenUiTest {
         onNodeWithTag(TaskUiTags.NEW_TASK).performClick()
         onNodeWithTag(TaskUiTags.EDITOR).assertExists()
         onNodeWithTag(TaskUiTags.EDITOR_TITLE).performTextInput("Ship the Compose UI")
-        onNodeWithTag(TaskUiTags.EDITOR_SAVE).performScrollTo().performClick()
+        runOnIdle {
+            assertEquals("Ship the Compose UI", state.editor?.title)
+        }
+        onNodeWithTag(TaskUiTags.EDITOR_SAVE)
+            .performScrollTo()
+            .assertIsDisplayed()
+            .assertIsEnabled()
+            .assertHasClickAction()
+            .performClick()
 
         runOnIdle {
             assertEquals("Ship the Compose UI", savedTitle)
@@ -166,6 +181,114 @@ class TaskScreenUiTest {
         onNodeWithTag(TaskUiTags.NEW_PROJECT).assertIsDisplayed()
         onNodeWithTag(TaskUiTags.project(PROJECT.id)).assertIsDisplayed()
     }
+
+    @Test
+    fun filtersAndAssignsTasksWithLabels() = runComposeUiTest {
+        var state by mutableStateOf(
+            TaskUiState(
+                isInitializing = false,
+                tasks = TASKS,
+                labels = LABELS,
+                activeCount = TASKS.size,
+            ),
+        )
+        var savedLabelIds: List<String>? = null
+
+        setContent {
+            TestTaskScreen(
+                state = state,
+                onStateChange = { state = it },
+                onSave = {
+                    savedLabelIds = state.editor?.labelIds
+                    state = state.copy(editor = null)
+                },
+            )
+        }
+
+        onNodeWithTag(TaskUiTags.labelFilter("work")).performClick()
+        onNodeWithTag(TaskUiTags.task("one")).assertExists()
+        onNodeWithTag(TaskUiTags.task("two")).assertDoesNotExist()
+
+        onNodeWithTag(TaskUiTags.NEW_TASK).performClick()
+        onNodeWithTag(TaskUiTags.editorLabel("work")).performScrollTo().performClick()
+        onNodeWithTag(TaskUiTags.EDITOR_TITLE).performTextInput("Review the release")
+        runOnIdle {
+            assertEquals("Review the release", state.editor?.title)
+            assertEquals(listOf("work"), state.editor?.labelIds)
+        }
+        onNodeWithTag(TaskUiTags.EDITOR_SAVE).performScrollTo().performClick()
+
+        runOnIdle {
+            assertEquals(listOf("work"), savedLabelIds)
+        }
+    }
+
+    @Test
+    fun createsLabelThroughTheManager() = runComposeUiTest {
+        var state by mutableStateOf(
+            TaskUiState(
+                isInitializing = false,
+                tasks = TASKS,
+                labels = LABELS,
+                activeCount = TASKS.size,
+            ),
+        )
+        var savedName: String? = null
+
+        setContent {
+            TestTaskScreen(
+                state = state,
+                onStateChange = { state = it },
+                onLabelSave = {
+                    savedName = state.labelEditor?.name
+                    state = state.copy(labelEditor = null)
+                },
+            )
+        }
+
+        onNodeWithTag(TaskUiTags.LABELS_BUTTON).performClick()
+        onNodeWithTag(TaskUiTags.LABEL_MANAGER).assertExists()
+        onNodeWithTag(TaskUiTags.ADD_LABEL).performClick()
+        onNodeWithTag(TaskUiTags.LABEL_NAME).performTextInput("Release")
+        onNodeWithTag(TaskUiTags.LABEL_SAVE).performClick()
+
+        runOnIdle {
+            assertEquals("Release", savedName)
+        }
+    }
+
+    @Test
+    fun keepsLabelWorkflowUsableAtCompactSize() = runSkikoComposeUiTest(
+        size = Size(width = 412f, height = 915f),
+    ) {
+        var state by mutableStateOf(
+            TaskUiState(
+                isInitializing = false,
+                tasks = TASKS,
+                labels = LABELS,
+                activeCount = TASKS.size,
+            ),
+        )
+
+        setContent {
+            TestTaskScreen(
+                state = state,
+                onStateChange = { state = it },
+            )
+        }
+
+        onNodeWithTag(TaskUiTags.LABELS_BUTTON).performClick()
+        onNodeWithTag(TaskUiTags.LABEL_MANAGER).assertIsDisplayed()
+        onNodeWithTag(TaskUiTags.ADD_LABEL)
+            .assertIsDisplayed()
+            .performClick()
+        onNodeWithTag(TaskUiTags.LABEL_NAME)
+            .assertIsDisplayed()
+            .performTextInput("Compact")
+        onNodeWithTag(TaskUiTags.LABEL_SAVE)
+            .assertIsDisplayed()
+            .assertIsEnabled()
+    }
 }
 
 @Composable
@@ -175,6 +298,7 @@ private fun TestTaskScreen(
     onSave: () -> Unit = {},
     onSaveProject: () -> Unit = {},
     modifier: Modifier = Modifier,
+    onLabelSave: () -> Unit = {},
 ) {
     MaterialTheme {
         TaskScreen(
@@ -190,6 +314,18 @@ private fun TestTaskScreen(
                 changeProject = {
                     onStateChange(state.copy(selectedProjectId = it))
                 },
+                changeLabelFilter = { labelId ->
+                    onStateChange(
+                        state.copy(
+                            selectedLabelId = labelId,
+                            tasks = if (labelId == null) {
+                                TASKS
+                            } else {
+                                TASKS.filter { labelId in it.task.labelIds }
+                            },
+                        ),
+                    )
+                },
                 createTask = {
                     onStateChange(state.copy(editor = TaskEditorUiState()))
                 },
@@ -198,6 +334,20 @@ private fun TestTaskScreen(
                 },
                 changeEditorTitle = {
                     onStateChange(state.copy(editor = state.editor?.copy(title = it)))
+                },
+                changeEditorLabel = { labelId, selected ->
+                    val editor = state.editor
+                    onStateChange(
+                        state.copy(
+                            editor = editor?.copy(
+                                labelIds = if (selected) {
+                                    (editor.labelIds + labelId).distinct()
+                                } else {
+                                    editor.labelIds - labelId
+                                },
+                            ),
+                        ),
+                    )
                 },
                 saveEditor = onSave,
                 createProject = {
@@ -216,6 +366,29 @@ private fun TestTaskScreen(
                     )
                 },
                 saveProject = onSaveProject,
+                showLabelManager = {
+                    onStateChange(state.copy(isManagingLabels = true))
+                },
+                dismissLabelManager = {
+                    onStateChange(
+                        state.copy(
+                            isManagingLabels = false,
+                            labelEditor = null,
+                        ),
+                    )
+                },
+                createLabel = {
+                    onStateChange(state.copy(labelEditor = TaskLabelEditorUiState()))
+                },
+                dismissLabelEditor = {
+                    onStateChange(state.copy(labelEditor = null))
+                },
+                changeLabelName = {
+                    onStateChange(
+                        state.copy(labelEditor = state.labelEditor?.copy(name = it)),
+                    )
+                },
+                saveLabel = onLabelSave,
             ),
             modifier = modifier,
         )
@@ -238,6 +411,7 @@ private val TASKS = listOf(
         task = Task(
             id = "one",
             title = "Draft the architecture",
+            labelIds = listOf("work"),
             priority = TaskPriority.HIGH,
             createdAt = TEST_NOW,
             updatedAt = TEST_NOW,
@@ -254,5 +428,19 @@ private val TASKS = listOf(
             revision = 1,
         ),
         syncState = TaskSyncState.PENDING,
+    ),
+)
+
+private val LABELS = listOf(
+    TaskLabelItem(
+        label = TaskLabel(
+            id = "work",
+            name = "Work",
+            color = TaskLabelColor.BLUE,
+            createdAt = TEST_NOW,
+            updatedAt = TEST_NOW,
+            revision = 1,
+        ),
+        syncState = TaskSyncState.SYNCED,
     ),
 )

@@ -1,6 +1,8 @@
 package com.example.kmpnativefirst.task.ui
 
 import com.example.kmpnativefirst.task.TaskConstraints
+import com.example.kmpnativefirst.task.TaskLabelColor
+import com.example.kmpnativefirst.task.TaskLabelConstraints
 import com.example.kmpnativefirst.task.TaskPriority
 import com.example.kmpnativefirst.task.TaskProject
 import com.example.kmpnativefirst.task.TaskProjectColor
@@ -8,6 +10,8 @@ import com.example.kmpnativefirst.task.TaskProjectConstraints
 import com.example.kmpnativefirst.task.TaskSmartView
 import com.example.kmpnativefirst.task.data.TaskConflict
 import com.example.kmpnativefirst.task.data.TaskItem
+import com.example.kmpnativefirst.task.data.TaskLabelConflict
+import com.example.kmpnativefirst.task.data.TaskLabelItem
 import com.example.kmpnativefirst.task.data.TaskProjectConflict
 import com.example.kmpnativefirst.task.data.TaskProjectItem
 import com.example.kmpnativefirst.task.data.TaskSyncStatus
@@ -18,9 +22,11 @@ data class TaskUiState(
     val isInitializing: Boolean = true,
     val initializationError: String? = null,
     val tasks: List<TaskItem> = emptyList(),
+    val labels: List<TaskLabelItem> = emptyList(),
     val view: TaskSmartView = TaskSmartView.INBOX,
     val selectedProjectId: String? = null,
     val searchQuery: String = "",
+    val selectedLabelId: String? = null,
     val activeCount: Int = 0,
     val completedCount: Int = 0,
     val projects: List<TaskProjectItem> = emptyList(),
@@ -28,13 +34,18 @@ data class TaskUiState(
     val syncStatus: TaskSyncStatus = TaskSyncStatus(),
     val conflicts: List<TaskConflict> = emptyList(),
     val projectConflicts: List<TaskProjectConflict> = emptyList(),
+    val labelConflicts: List<TaskLabelConflict> = emptyList(),
     val editor: TaskEditorUiState? = null,
     val projectEditor: TaskProjectEditorUiState? = null,
+    val isManagingLabels: Boolean = false,
+    val labelEditor: TaskLabelEditorUiState? = null,
     val taskPendingDeletion: TaskItem? = null,
     val projectPendingDeletion: TaskProjectItem? = null,
+    val labelPendingDeletion: TaskLabelItem? = null,
     val isConfirmingClearCompleted: Boolean = false,
     val selectedConflict: TaskConflict? = null,
     val selectedProjectConflict: TaskProjectConflict? = null,
+    val selectedLabelConflict: TaskLabelConflict? = null,
     val notice: TaskUiNotice? = null,
 ) {
     val selectedProject: TaskProject?
@@ -46,6 +57,7 @@ data class TaskUiState(
 data class TaskEditorUiState(
     val taskId: String? = null,
     val projectId: String? = null,
+    val labelIds: List<String> = emptyList(),
     val title: String = "",
     val notes: String = "",
     val priority: TaskPriority = TaskPriority.NONE,
@@ -86,6 +98,27 @@ data class TaskProjectEditorUiState(
         get() = !hasNameError && !isSaving
 }
 
+data class TaskLabelEditorUiState(
+    val labelId: String? = null,
+    val name: String = "",
+    val color: TaskLabelColor = TaskLabelColor.SLATE,
+    val isSaving: Boolean = false,
+    val showValidationErrors: Boolean = false,
+) {
+    val isEditing: Boolean
+        get() = labelId != null
+
+    val hasNameError: Boolean
+        get() {
+            val normalizedName = name.trim()
+            return normalizedName.isEmpty() ||
+                normalizedName.length > TaskLabelConstraints.MAX_NAME_LENGTH
+        }
+
+    val canSave: Boolean
+        get() = !hasNameError && !isSaving
+}
+
 data class TaskUiNotice(
     val id: Long,
     val content: TaskUiNoticeContent,
@@ -114,5 +147,8 @@ enum class TaskOperation {
     SAVE_PROJECT,
     DELETE_PROJECT,
     RESOLVE_PROJECT_CONFLICT,
+    SAVE_LABEL,
+    DELETE_LABEL,
+    RESOLVE_LABEL_CONFLICT,
     SYNC,
 }
