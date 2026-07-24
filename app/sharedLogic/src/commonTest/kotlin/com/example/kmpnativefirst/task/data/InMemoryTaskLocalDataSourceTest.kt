@@ -123,4 +123,38 @@ class InMemoryTaskLocalDataSourceTest {
         assertEquals(1, source.conflictCount())
         assertTrue(source.observeConflicts().first().isNotEmpty())
     }
+
+    @Test
+    fun restoresPersistedTasksAndPendingMutations() = runTest {
+        var savedState: TaskLocalState? = null
+        val source = InMemoryTaskLocalDataSource(
+            persistState = { savedState = it },
+        )
+        val created = task(revision = 0)
+
+        source.applyCreate(created, operationId = "create", enqueuedAt = TEST_INSTANT)
+        val restored = InMemoryTaskLocalDataSource(
+            restoredState = requireNotNull(savedState),
+        )
+
+        assertEquals(created, restored.findTask(created.id)?.task)
+        assertEquals(TaskSyncState.PENDING, restored.findTask(created.id)?.syncState)
+        assertEquals("create", restored.nextMutation()?.operationId)
+    }
+
+    @Test
+    fun rollsBackMutationWhenPersistenceFails() = runTest {
+        val source = InMemoryTaskLocalDataSource(
+            persistState = { error("Storage unavailable") },
+        )
+        val created = task(revision = 0)
+
+        assertFailsWith<IllegalStateException> {
+            source.applyCreate(created, operationId = "create", enqueuedAt = TEST_INSTANT)
+        }
+
+        assertNull(source.findTask(created.id))
+        assertEquals(0, source.pendingCount())
+        assertTrue(source.observeTasks().first().isEmpty())
+    }
 }

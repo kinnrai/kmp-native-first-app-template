@@ -3,6 +3,7 @@ package com.example.kmpnativefirst.task.data
 import com.example.kmpnativefirst.task.Task
 import com.example.kmpnativefirst.task.TaskPriority
 import com.example.kmpnativefirst.task.TaskValidationIssue
+import kotlinx.serialization.Serializable
 import kotlin.time.Instant
 
 data class TaskDraft(
@@ -33,18 +34,21 @@ data class TaskItem(
     val syncState: TaskSyncState,
 )
 
+@Serializable
 enum class TaskSyncState {
     SYNCED,
     PENDING,
     CONFLICT,
 }
 
+@Serializable
 enum class TaskMutationKind {
     CREATE,
     UPDATE,
     DELETE,
 }
 
+@Serializable
 enum class TaskConflictField {
     CREATION,
     DELETION,
@@ -55,6 +59,7 @@ enum class TaskConflictField {
     COMPLETION,
 }
 
+@Serializable
 data class TaskConflict(
     val taskId: String,
     val mutationKind: TaskMutationKind,
@@ -122,6 +127,7 @@ class UnresolvedTaskConflictException(
     val taskId: String,
 ) : IllegalStateException("Task '$taskId' has an unresolved conflict.")
 
+@Serializable
 internal data class PendingTaskMutation(
     val operationId: String,
     val taskId: String,
