@@ -7,6 +7,8 @@ import SharedLogic
 final class TaskStore {
   private(set) var tasks: [TaskRecord] = []
   private(set) var conflicts: [TaskConflictRecord] = []
+  private(set) var projects: [TaskProjectRecord] = []
+  private(set) var projectConflicts: [TaskProjectConflictRecord] = []
   private(set) var syncStatus = TaskSyncStatusValue.initial
   private(set) var isStarting = false
   private(set) var activeOperationCount = 0
@@ -55,6 +57,18 @@ final class TaskStore {
     conflicts.first { $0.id == taskID }
   }
 
+  func project(id: String) -> TaskProjectRecord? {
+    projects.first { $0.id == id }
+  }
+
+  func projectConflict(projectID: String) -> TaskProjectConflictRecord? {
+    projectConflicts.first { $0.id == projectID }
+  }
+
+  func displayedProject(id: String) -> TaskProjectRecord? {
+    project(id: id) ?? projectConflict(projectID: id)?.displayedProject
+  }
+
   func filteredTasks(
     filter: TaskListFilter,
     searchText: String
@@ -70,6 +84,48 @@ final class TaskStore {
         query.isEmpty || task.title.localizedStandardContains(query)
           || task.notes?.localizedStandardContains(query) == true
       }
+  }
+
+  func filteredTasks(
+    selection: TaskCollectionSelection,
+    searchText: String
+  ) -> [TaskRecord] {
+    switch selection {
+    case .smart(let filter):
+      filteredTasks(filter: filter, searchText: searchText)
+    case .project(let projectID):
+      filterTasks(
+        tasks.filter { $0.projectID == projectID },
+        searchText: searchText
+      )
+    }
+  }
+
+  func title(for selection: TaskCollectionSelection) -> String {
+    switch selection {
+    case .smart(let filter):
+      filter.title
+    case .project(let projectID):
+      displayedProject(id: projectID)?.name ?? "Project"
+    }
+  }
+
+  func systemImage(for selection: TaskCollectionSelection) -> String {
+    switch selection {
+    case .smart(let filter):
+      filter.systemImage
+    case .project:
+      "folder"
+    }
+  }
+
+  func count(for selection: TaskCollectionSelection) -> Int {
+    switch selection {
+    case .smart(let filter):
+      count(for: filter)
+    case .project(let projectID):
+      tasks.count { $0.projectID == projectID }
+    }
   }
 
   func start() async {
@@ -183,6 +239,65 @@ final class TaskStore {
     }
   }
 
+  func createProject(_ draft: TaskProjectEditorDraft) async {
+    guard let backend else { return }
+    await perform {
+      _ = try await backend.createProject(
+        name: draft.normalizedName,
+        color: draft.color.kotlinValue
+      )
+    }
+  }
+
+  func updateProject(
+    projectID: String,
+    draft: TaskProjectEditorDraft
+  ) async {
+    guard let backend else { return }
+    await perform {
+      _ = try await backend.updateProject(
+        projectId: projectID,
+        name: draft.normalizedName,
+        color: draft.color.kotlinValue
+      )
+    }
+  }
+
+  func deleteProject(projectID: String) async {
+    guard let backend else { return }
+    await perform {
+      try await backend.deleteProject(projectId: projectID)
+    }
+  }
+
+  func keepLocalProject(projectID: String) async {
+    guard let backend else { return }
+    await perform {
+      try await backend.keepLocalProject(projectId: projectID)
+    }
+  }
+
+  func useRemoteProject(projectID: String) async {
+    guard let backend else { return }
+    await perform {
+      try await backend.useRemoteProject(projectId: projectID)
+    }
+  }
+
+  func mergeProjectConflict(
+    projectID: String,
+    draft: TaskProjectEditorDraft
+  ) async {
+    guard let backend else { return }
+    await perform {
+      try await backend.mergeProjectConflict(
+        projectId: projectID,
+        name: draft.normalizedName,
+        color: draft.color.kotlinValue
+      )
+    }
+  }
+
   func sync() async {
     guard let backend else { return }
     await perform {
@@ -197,7 +312,21 @@ final class TaskStore {
   private func apply(_ snapshot: AppleTaskSnapshot) {
     tasks = snapshot.tasks.map(TaskRecord.init)
     conflicts = snapshot.conflicts.map(TaskConflictRecord.init)
+    projects = snapshot.projects.map(TaskProjectRecord.init)
+    projectConflicts = snapshot.projectConflicts.map(TaskProjectConflictRecord.init)
     syncStatus = TaskSyncStatusValue(snapshot.syncStatus)
+  }
+
+  private func filterTasks(
+    _ tasks: [TaskRecord],
+    searchText: String
+  ) -> [TaskRecord] {
+    let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !query.isEmpty else { return tasks }
+    return tasks.filter { task in
+      task.title.localizedStandardContains(query)
+        || task.notes?.localizedStandardContains(query) == true
+    }
   }
 
   private func plannedTasks(for filter: TaskListFilter) -> [TaskRecord] {

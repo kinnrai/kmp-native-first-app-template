@@ -5,6 +5,7 @@ struct TaskEditorView: View {
   let save: (TaskEditorDraft) -> Void
 
   @Environment(\.dismiss) private var dismiss
+  @Environment(TaskStore.self) private var store
   @State private var draft: TaskEditorDraft
 
   init(
@@ -34,6 +35,24 @@ struct TaskEditorView: View {
         }
 
         Section("Details") {
+          Picker("Project", selection: $draft.projectID) {
+            Label("Inbox", systemImage: "tray")
+              .tag(String?.none)
+
+            ForEach(store.projects) { project in
+              TaskProjectLabel(project: project)
+                .tag(Optional(project.id))
+            }
+
+            if let projectID = draft.projectID,
+              store.project(id: projectID) == nil,
+              let project = store.displayedProject(id: projectID)
+            {
+              TaskProjectLabel(project: project)
+                .tag(Optional(projectID))
+            }
+          }
+
           Picker("Priority", selection: $draft.priority) {
             ForEach(TaskPriorityValue.allCases) { priority in
               Label(priority.title, systemImage: priority.systemImage)

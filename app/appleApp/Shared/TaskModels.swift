@@ -213,8 +213,14 @@ struct TaskEditorDraft: Equatable {
   var preciseDueAt: Date?
   var isCompleted = false
 
-  init(task: TaskRecord? = nil) {
-    guard let task else { return }
+  init(
+    task: TaskRecord? = nil,
+    defaultProjectID: String? = nil
+  ) {
+    guard let task else {
+      projectID = defaultProjectID
+      return
+    }
     title = task.title
     notes = task.notes ?? ""
     projectID = task.projectID
@@ -294,8 +300,9 @@ private enum TaskConflictFieldValue {
       self = .project
     } else if field === SharedLogic.TaskConflictField.priority {
       self = .priority
-    } else if field === SharedLogic.TaskConflictField.dueDate ||
-                field === SharedLogic.TaskConflictField.dueAt {
+    } else if field === SharedLogic.TaskConflictField.dueDate
+      || field === SharedLogic.TaskConflictField.dueAt
+    {
       self = .dueDate
     } else {
       self = .completion
@@ -352,7 +359,17 @@ struct TaskSyncStatusValue: Equatable {
     pendingCount = Int(status.pendingCount)
     conflictCount = Int(status.conflictCount)
     lastSyncedAt = status.lastSyncedAt?.date
-    lastError = status.lastError?.message
+    if let failure = status.lastError {
+      if failure.kind === SharedLogic.TaskSyncFailureKind.network {
+        lastError = "Can’t reach the sync service. Your changes remain available on this device."
+      } else if failure.kind === SharedLogic.TaskSyncFailureKind.server {
+        lastError = "The sync service is temporarily unavailable. Try again later."
+      } else {
+        lastError = "Local task data couldn’t be updated. Try again."
+      }
+    } else {
+      lastError = nil
+    }
   }
 
   private init(
