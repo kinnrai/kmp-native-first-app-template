@@ -53,6 +53,7 @@ class SqlDelightTaskLocalDataSourceTest {
                     task = task(
                         title = "Persist me",
                         projectId = PROJECT_ID,
+                        labelIds = listOf(LABEL_ID),
                         dueDate = LocalDate(2026, 8, 1),
                         revision = 0,
                     ),
@@ -65,6 +66,7 @@ class SqlDelightTaskLocalDataSourceTest {
                 val item = reopened.observeTasks().first().single()
                 assertEquals("Persist me", item.task.title)
                 assertEquals(PROJECT_ID, item.task.projectId)
+                assertEquals(listOf(LABEL_ID), item.task.labelIds)
                 assertEquals(LocalDate(2026, 8, 1), item.task.dueDate)
                 assertEquals(TaskSyncState.PENDING, item.syncState)
                 assertEquals(TaskMutationKind.CREATE, reopened.nextMutation()?.kind)
@@ -222,5 +224,6 @@ class SqlDelightTaskLocalDataSourceTest {
 
     private companion object {
         const val PROJECT_ID = "22222222-2222-4222-8222-222222222222"
+        const val LABEL_ID = "33333333-3333-4333-8333-333333333333"
     }
 }

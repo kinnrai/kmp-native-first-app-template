@@ -1,6 +1,8 @@
 package com.example.kmpnativefirst.task.data
 
 import com.example.kmpnativefirst.task.TaskListResponse
+import com.example.kmpnativefirst.task.CreateTaskRequest
+import com.example.kmpnativefirst.task.ReplaceTaskRequest
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandleScope
@@ -9,6 +11,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
+import io.ktor.http.content.OutgoingContent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.encodeToString
 import kotlin.test.Test
@@ -39,10 +42,17 @@ class KtorTaskRemoteDataSourceTest {
 
     @Test
     fun createsTasksAndDecodesTheCanonicalServerVersion() = runTest {
-        val created = task(revision = 1)
+        val created = task(labelIds = listOf(LABEL_ID), revision = 1)
         val remote = remote { request ->
             assertEquals(HttpMethod.Post, request.method)
             assertEquals("/api/v1/tasks", request.url.encodedPath)
+            val body = request.body as OutgoingContent.ByteArrayContent
+            assertEquals(
+                listOf(LABEL_ID),
+                taskJson.decodeFromString<CreateTaskRequest>(
+                    body.bytes().decodeToString(),
+                ).labelIds,
+            )
             respondJson(
                 content = taskJson.encodeToString(created),
                 status = HttpStatusCode.Created,
@@ -50,6 +60,24 @@ class KtorTaskRemoteDataSourceTest {
         }
 
         assertEquals(created, remote.create(created.copy(revision = 0)))
+    }
+
+    @Test
+    fun sendsLabelAssignmentsWhenReplacingTasks() = runTest {
+        val replacement = task(labelIds = listOf(LABEL_ID))
+        val remote = remote { request ->
+            assertEquals(HttpMethod.Put, request.method)
+            val body = request.body as OutgoingContent.ByteArrayContent
+            assertEquals(
+                listOf(LABEL_ID),
+                taskJson.decodeFromString<ReplaceTaskRequest>(
+                    body.bytes().decodeToString(),
+                ).labelIds,
+            )
+            respondJson(taskJson.encodeToString(replacement.copy(revision = 2)))
+        }
+
+        remote.replace(replacement)
     }
 
     @Test
@@ -133,4 +161,8 @@ class KtorTaskRemoteDataSourceTest {
         status = status,
         headers = headersOf(HttpHeaders.ContentType, "application/json"),
     )
+
+    private companion object {
+        const val LABEL_ID = "33333333-3333-4333-8333-333333333333"
+    }
 }

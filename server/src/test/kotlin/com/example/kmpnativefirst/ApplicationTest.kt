@@ -2,13 +2,22 @@ package com.example.kmpnativefirst
 
 import com.example.kmpnativefirst.task.ApiErrorResponse
 import com.example.kmpnativefirst.task.CreateTaskRequest
+import com.example.kmpnativefirst.task.CreateTaskLabelRequest
 import com.example.kmpnativefirst.task.CreateTaskProjectRequest
 import com.example.kmpnativefirst.task.InMemoryTaskRepository
 import com.example.kmpnativefirst.task.ReplaceTaskRequest
+import com.example.kmpnativefirst.task.ReplaceTaskLabelRequest
 import com.example.kmpnativefirst.task.ReplaceTaskProjectRequest
 import com.example.kmpnativefirst.task.Task
 import com.example.kmpnativefirst.task.TaskApi
+import com.example.kmpnativefirst.task.TaskField
 import com.example.kmpnativefirst.task.TaskListResponse
+import com.example.kmpnativefirst.task.TaskLabel
+import com.example.kmpnativefirst.task.TaskLabelApi
+import com.example.kmpnativefirst.task.TaskLabelApiErrorResponse
+import com.example.kmpnativefirst.task.TaskLabelColor
+import com.example.kmpnativefirst.task.TaskLabelListResponse
+import com.example.kmpnativefirst.task.TaskLabelService
 import com.example.kmpnativefirst.task.TaskPriority
 import com.example.kmpnativefirst.task.TaskProject
 import com.example.kmpnativefirst.task.TaskProjectApi
@@ -247,6 +256,96 @@ class ApplicationTest {
         )
     }
 
+    @Test
+    fun supportsLabelCrudTaskAssignmentAndCleanup() = testApplication {
+        application { configureTestApplication() }
+
+        val invalid = client.post(TaskLabelApi.BASE_PATH) {
+            jsonBody(CreateTaskLabelRequest(id = "invalid", name = " "))
+        }
+        assertEquals(HttpStatusCode.BadRequest, invalid.status)
+        val invalidError = invalid.decode<TaskLabelApiErrorResponse>()
+        assertEquals("validation_failed", invalidError.code)
+        assertEquals(2, invalidError.issues.size)
+
+        val createdResponse = client.post(TaskLabelApi.BASE_PATH) {
+            jsonBody(
+                CreateTaskLabelRequest(
+                    id = LABEL_ID,
+                    name = "  Focus  ",
+                    color = TaskLabelColor.PURPLE,
+                ),
+            )
+        }
+        assertEquals(HttpStatusCode.Created, createdResponse.status)
+        assertEquals(
+            "${TaskLabelApi.BASE_PATH}/$LABEL_ID",
+            createdResponse.headers[HttpHeaders.Location],
+        )
+        val created = createdResponse.decode<TaskLabel>()
+        assertEquals("Focus", created.name)
+        assertEquals(1, created.revision)
+        assertEquals(
+            listOf(created),
+            client.get(TaskLabelApi.BASE_PATH).decode<TaskLabelListResponse>().items,
+        )
+
+        val replacement = ReplaceTaskLabelRequest(
+            name = "Deep work",
+            color = TaskLabelColor.BLUE,
+            expectedRevision = created.revision,
+        )
+        val updated = client.put("${TaskLabelApi.BASE_PATH}/$LABEL_ID") {
+            jsonBody(replacement)
+        }.decode<TaskLabel>()
+        assertEquals("Deep work", updated.name)
+        assertEquals(2, updated.revision)
+
+        val assignedTask = client.post(TaskApi.BASE_PATH) {
+            jsonBody(
+                CreateTaskRequest(
+                    id = TASK_ID,
+                    title = "Plan release",
+                    labelIds = listOf(updated.id, updated.id),
+                ),
+            )
+        }.decode<Task>()
+        assertEquals(listOf(updated.id), assignedTask.labelIds)
+
+        val invalidAssignment = client.put("${TaskApi.BASE_PATH}/${assignedTask.id}") {
+            jsonBody(
+                ReplaceTaskRequest(
+                    title = assignedTask.title,
+                    labelIds = listOf(MISSING_LABEL_ID),
+                    expectedRevision = assignedTask.revision,
+                ),
+            )
+        }
+        assertEquals(HttpStatusCode.BadRequest, invalidAssignment.status)
+        assertEquals(
+            TaskField.LABEL_IDS,
+            invalidAssignment.decode<ApiErrorResponse>().issues.single().field,
+        )
+
+        val conflict = client.put("${TaskLabelApi.BASE_PATH}/$LABEL_ID") {
+            jsonBody(replacement.copy(name = "Stale"))
+        }
+        assertEquals(HttpStatusCode.Conflict, conflict.status)
+        assertEquals(
+            "label_conflict",
+            conflict.decode<TaskLabelApiErrorResponse>().code,
+        )
+
+        val deleted = client.delete(
+            "${TaskLabelApi.BASE_PATH}/$LABEL_ID?expectedRevision=${updated.revision}",
+        )
+        assertEquals(HttpStatusCode.NoContent, deleted.status)
+        val detachedTask = client.get("${TaskApi.BASE_PATH}/${assignedTask.id}")
+            .decode<Task>()
+        assertTrue(detachedTask.labelIds.isEmpty())
+        assertEquals(assignedTask.revision + 1, detachedTask.revision)
+    }
+
     private fun io.ktor.server.application.Application.configureTestApplication() {
         val repository = InMemoryTaskRepository()
         val clock = object : Clock {
@@ -255,6 +354,7 @@ class ApplicationTest {
         configureApplication(
             taskService = TaskService(repository, clock),
             taskProjectService = TaskProjectService(repository, clock),
+            taskLabelService = TaskLabelService(repository, clock),
         )
     }
 
@@ -272,5 +372,7 @@ class ApplicationTest {
     private companion object {
         const val TASK_ID = "11111111-1111-4111-8111-111111111111"
         const val PROJECT_ID = "22222222-2222-4222-8222-222222222222"
+        const val LABEL_ID = "33333333-3333-4333-8333-333333333333"
+        const val MISSING_LABEL_ID = "44444444-4444-4444-8444-444444444444"
     }
 }

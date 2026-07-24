@@ -18,6 +18,32 @@ import kotlin.test.assertTrue
 
 class OfflineFirstTaskRepositoryTest {
     @Test
+    fun normalizesAssignmentsAndPreservesThemWhenEditingOtherFields() = runTest {
+        val repository = OfflineFirstTaskRepository(
+            local = InMemoryTaskLocalDataSource(),
+            remote = FakeTaskRemoteDataSource(),
+            clock = AdvancingClock(),
+            idGenerator = SequentialIds()::next,
+        )
+        val firstLabelId = "40000000-0000-4000-8000-000000000001"
+        val secondLabelId = "40000000-0000-4000-8000-000000000002"
+        val created = repository.create(
+            TaskDraft(
+                title = "Plan release",
+                labelIds = listOf(secondLabelId, firstLabelId, secondLabelId),
+            ),
+        )
+
+        assertEquals(listOf(firstLabelId, secondLabelId), created.labelIds)
+        val updated = repository.update(
+            taskId = created.id,
+            edit = TaskEdit(title = "Publish release"),
+        )
+
+        assertEquals(listOf(firstLabelId, secondLabelId), updated.labelIds)
+    }
+
+    @Test
     fun writesLocallyBeforeAnyNetworkSynchronization() = runTest {
         val remote = FakeTaskRemoteDataSource()
         val ids = SequentialIds()
@@ -302,7 +328,12 @@ class OfflineFirstTaskRepositoryTest {
 
     @Test
     fun resolvesAConflictWithAnExplicitlyMergedVersion() = runTest {
-        val base = task(title = "Original", notes = "Base")
+        val labelId = "40000000-0000-4000-8000-000000000001"
+        val base = task(
+            title = "Original",
+            notes = "Base",
+            labelIds = listOf(labelId),
+        )
         val remote = FakeTaskRemoteDataSource(
             listOf(base.copy(title = "Remote", notes = "Remote note", revision = 2)),
         )
@@ -334,6 +365,7 @@ class OfflineFirstTaskRepositoryTest {
         val synchronized = repository.tasks.first().single()
         assertEquals("Combined", synchronized.task.title)
         assertEquals("Remote note", synchronized.task.notes)
+        assertEquals(listOf(labelId), synchronized.task.labelIds)
         assertEquals(3, synchronized.task.revision)
         assertEquals(TaskSyncState.SYNCED, synchronized.syncState)
     }

@@ -5,6 +5,7 @@ import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.Table
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.plus
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.SchemaUtils
@@ -21,26 +22,36 @@ import kotlin.time.Instant
 
 class SqliteTaskRepository private constructor(
     private val database: Database,
-) : TaskRepository, TaskProjectRepository {
+) : TaskRepository, TaskProjectRepository, TaskLabelRepository {
     override suspend fun list(): List<Task> = suspendTransaction(db = database) {
-        TasksTable
+        val rows = TasksTable
             .selectAll()
             .orderBy(TasksTable.updatedAtEpochMillis to SortOrder.DESC)
-            .map(::toTask)
+            .toList()
+        val labelIdsByTask = labelIdsByTask(
+            rows.map { row -> row[TasksTable.id] },
+        )
+        rows.map { row ->
+            toTask(row, labelIdsByTask[row[TasksTable.id]].orEmpty())
+        }
     }
 
     override suspend fun find(id: String): Task? = suspendTransaction(db = database) {
-        TasksTable
+        val row = TasksTable
             .selectAll()
             .where { TasksTable.id eq id }
             .limit(1)
             .singleOrNull()
-            ?.let(::toTask)
+            ?: return@suspendTransaction null
+        toTask(row, labelIdsForTask(id))
     }
 
     override suspend fun insert(task: Task): TaskInsertResult = suspendTransaction(db = database) {
         if (!projectExists(task.projectId)) {
             return@suspendTransaction TaskInsertResult.InvalidProject
+        }
+        if (!labelsExist(task.labelIds)) {
+            return@suspendTransaction TaskInsertResult.InvalidLabels
         }
         val insert = TasksTable.insertIgnore { statement ->
             statement[id] = task.id
@@ -56,6 +67,7 @@ class SqliteTaskRepository private constructor(
             statement[revision] = task.revision
         }
         if (insert.insertedCount == 1) {
+            replaceTaskLabels(task.id, task.labelIds)
             TaskInsertResult.Inserted(task)
         } else {
             TaskInsertResult.AlreadyExists
@@ -68,6 +80,9 @@ class SqliteTaskRepository private constructor(
     ): TaskMutationResult = suspendTransaction(db = database) {
         if (!projectExists(task.projectId)) {
             return@suspendTransaction TaskMutationResult.InvalidProject
+        }
+        if (!labelsExist(task.labelIds)) {
+            return@suspendTransaction TaskMutationResult.InvalidLabels
         }
         val updatedRows = TasksTable.update(
             where = {
@@ -87,7 +102,10 @@ class SqliteTaskRepository private constructor(
         }
 
         when {
-            updatedRows == 1 -> TaskMutationResult.Updated(task)
+            updatedRows == 1 -> {
+                replaceTaskLabels(task.id, task.labelIds)
+                TaskMutationResult.Updated(task)
+            }
             TasksTable.selectAll().where { TasksTable.id eq task.id }.empty() ->
                 TaskMutationResult.NotFound
             else -> TaskMutationResult.Conflict
@@ -103,7 +121,10 @@ class SqliteTaskRepository private constructor(
                 (TasksTable.revision eq expectedRevision)
         }
         when {
-            deletedRows == 1 -> TaskDeleteResult.Deleted
+            deletedRows == 1 -> {
+                TaskLabelsTable.deleteWhere { taskId eq id }
+                TaskDeleteResult.Deleted
+            }
             TasksTable.selectAll().where { TasksTable.id eq id }.empty() ->
                 TaskDeleteResult.NotFound
             else -> TaskDeleteResult.Conflict
@@ -111,6 +132,15 @@ class SqliteTaskRepository private constructor(
     }
 
     override suspend fun deleteCompleted(): Int = suspendTransaction(db = database) {
+        val completedTaskIds = TasksTable
+            .selectAll()
+            .where { TasksTable.isCompleted eq true }
+            .map { row -> row[TasksTable.id] }
+        if (completedTaskIds.isNotEmpty()) {
+            TaskLabelsTable.deleteWhere {
+                taskId inList completedTaskIds
+            }
+        }
         TasksTable.deleteWhere { TasksTable.isCompleted eq true }
     }
 
@@ -202,6 +232,102 @@ class SqliteTaskRepository private constructor(
         }
     }
 
+    override suspend fun listLabels(): List<TaskLabel> =
+        suspendTransaction(db = database) {
+            TaskLabelsDefinitionTable
+                .selectAll()
+                .orderBy(TaskLabelsDefinitionTable.name to SortOrder.ASC)
+                .map(::toTaskLabel)
+        }
+
+    override suspend fun findLabel(id: String): TaskLabel? =
+        suspendTransaction(db = database) {
+            TaskLabelsDefinitionTable
+                .selectAll()
+                .where { TaskLabelsDefinitionTable.id eq id }
+                .limit(1)
+                .singleOrNull()
+                ?.let(::toTaskLabel)
+        }
+
+    override suspend fun insertLabel(
+        label: TaskLabel,
+    ): TaskLabelInsertResult = suspendTransaction(db = database) {
+        val insert = TaskLabelsDefinitionTable.insertIgnore { statement ->
+            statement[id] = label.id
+            statement[name] = label.name
+            statement[color] = label.color.name
+            statement[createdAtEpochMillis] = label.createdAt.toEpochMilliseconds()
+            statement[updatedAtEpochMillis] = label.updatedAt.toEpochMilliseconds()
+            statement[revision] = label.revision
+        }
+        if (insert.insertedCount == 1) {
+            TaskLabelInsertResult.Inserted(label)
+        } else {
+            TaskLabelInsertResult.AlreadyExists
+        }
+    }
+
+    override suspend fun replaceLabel(
+        label: TaskLabel,
+        expectedRevision: Long,
+    ): TaskLabelMutationResult = suspendTransaction(db = database) {
+        val updatedRows = TaskLabelsDefinitionTable.update(
+            where = {
+                (TaskLabelsDefinitionTable.id eq label.id) and
+                    (TaskLabelsDefinitionTable.revision eq expectedRevision)
+            },
+        ) { statement ->
+            statement[name] = label.name
+            statement[color] = label.color.name
+            statement[updatedAtEpochMillis] = label.updatedAt.toEpochMilliseconds()
+            statement[revision] = label.revision
+        }
+        when {
+            updatedRows == 1 -> TaskLabelMutationResult.Updated(label)
+            TaskLabelsDefinitionTable
+                .selectAll()
+                .where { TaskLabelsDefinitionTable.id eq label.id }
+                .empty() -> TaskLabelMutationResult.NotFound
+            else -> TaskLabelMutationResult.Conflict
+        }
+    }
+
+    override suspend fun deleteLabel(
+        id: String,
+        expectedRevision: Long,
+        affectedTasksUpdatedAt: Instant,
+    ): TaskLabelDeleteResult = suspendTransaction(db = database) {
+        val affectedTaskIds = TaskLabelsTable
+            .selectAll()
+            .where { TaskLabelsTable.labelId eq id }
+            .map { row -> row[TaskLabelsTable.taskId] }
+        val deletedRows = TaskLabelsDefinitionTable.deleteWhere {
+            (TaskLabelsDefinitionTable.id eq id) and
+                (TaskLabelsDefinitionTable.revision eq expectedRevision)
+        }
+        when {
+            deletedRows == 1 -> {
+                TaskLabelsTable.deleteWhere { labelId eq id }
+                if (affectedTaskIds.isNotEmpty()) {
+                    TasksTable.update(
+                        where = { TasksTable.id inList affectedTaskIds },
+                    ) { statement ->
+                        statement[updatedAtEpochMillis] =
+                            affectedTasksUpdatedAt.toEpochMilliseconds()
+                        statement[revision] = TasksTable.revision + 1
+                    }
+                }
+                TaskLabelDeleteResult.Deleted(affectedTaskIds.size)
+            }
+            TaskLabelsDefinitionTable
+                .selectAll()
+                .where { TaskLabelsDefinitionTable.id eq id }
+                .empty() -> TaskLabelDeleteResult.NotFound
+            else -> TaskLabelDeleteResult.Conflict
+        }
+    }
+
     companion object {
         private const val SQLITE_PREFIX = "jdbc:sqlite:"
 
@@ -215,7 +341,12 @@ class SqliteTaskRepository private constructor(
                 driver = "org.sqlite.JDBC",
             )
             transaction(database) {
-                SchemaUtils.create(TaskProjectsTable, TasksTable)
+                SchemaUtils.create(
+                    TaskProjectsTable,
+                    TaskLabelsDefinitionTable,
+                    TasksTable,
+                    TaskLabelsTable,
+                )
                 val taskColumns = exec("PRAGMA table_info(tasks)") { result ->
                     buildSet {
                         while (result.next()) {
@@ -260,6 +391,21 @@ private object TaskProjectsTable : Table("task_projects") {
     override val primaryKey = PrimaryKey(id)
 }
 
+private object TaskLabelsDefinitionTable : Table("task_labels") {
+    val id = varchar("id", length = 36)
+    val name = varchar("name", length = TaskLabelConstraints.MAX_NAME_LENGTH)
+    val color = varchar("color", length = 16)
+    val createdAtEpochMillis = long("created_at_epoch_millis")
+    val updatedAtEpochMillis = long("updated_at_epoch_millis")
+    val revision = long("revision")
+
+    override val primaryKey = PrimaryKey(id)
+
+    init {
+        index(isUnique = false, name)
+    }
+}
+
 private object TasksTable : Table("tasks") {
     val id = varchar("id", length = 36)
     val title = varchar("title", length = TaskConstraints.MAX_TITLE_LENGTH)
@@ -276,6 +422,17 @@ private object TasksTable : Table("tasks") {
     override val primaryKey = PrimaryKey(id)
 }
 
+private object TaskLabelsTable : Table("task_label_assignments") {
+    val taskId = varchar("task_id", length = 36)
+    val labelId = varchar("label_id", length = 36)
+
+    override val primaryKey = PrimaryKey(taskId, labelId)
+
+    init {
+        index(isUnique = false, labelId)
+    }
+}
+
 private fun projectExists(projectId: String?): Boolean =
     projectId == null ||
         TaskProjectsTable
@@ -284,11 +441,60 @@ private fun projectExists(projectId: String?): Boolean =
             .limit(1)
             .any()
 
-private fun toTask(row: ResultRow): Task = Task(
+private fun labelsExist(labelIds: List<String>): Boolean {
+    if (labelIds.isEmpty()) {
+        return true
+    }
+    val existingIds = TaskLabelsDefinitionTable
+        .selectAll()
+        .where { TaskLabelsDefinitionTable.id inList labelIds }
+        .mapTo(mutableSetOf()) { row -> row[TaskLabelsDefinitionTable.id] }
+    return existingIds.size == labelIds.toSet().size
+}
+
+private fun replaceTaskLabels(
+    taskId: String,
+    labelIds: List<String>,
+) {
+    TaskLabelsTable.deleteWhere { TaskLabelsTable.taskId eq taskId }
+    labelIds.forEach { labelId ->
+        TaskLabelsTable.insertIgnore { statement ->
+            statement[TaskLabelsTable.taskId] = taskId
+            statement[TaskLabelsTable.labelId] = labelId
+        }
+    }
+}
+
+private fun labelIdsForTask(taskId: String): List<String> =
+    TaskLabelsTable
+        .selectAll()
+        .where { TaskLabelsTable.taskId eq taskId }
+        .map { row -> row[TaskLabelsTable.labelId] }
+        .sorted()
+
+private fun labelIdsByTask(taskIds: List<String>): Map<String, List<String>> {
+    if (taskIds.isEmpty()) {
+        return emptyMap()
+    }
+    return TaskLabelsTable
+        .selectAll()
+        .where { TaskLabelsTable.taskId inList taskIds }
+        .groupBy(
+            keySelector = { row -> row[TaskLabelsTable.taskId] },
+            valueTransform = { row -> row[TaskLabelsTable.labelId] },
+        )
+        .mapValues { (_, labelIds) -> labelIds.sorted() }
+}
+
+private fun toTask(
+    row: ResultRow,
+    labelIds: List<String>,
+): Task = Task(
     id = row[TasksTable.id],
     title = row[TasksTable.title],
     notes = row[TasksTable.notes],
     projectId = row[TasksTable.projectId],
+    labelIds = labelIds,
     priority = TaskPriority.valueOf(row[TasksTable.priority]),
     dueDate = row[TasksTable.dueDate]?.let(LocalDate::parse),
     dueAt = row[TasksTable.dueAtEpochMillis]?.let(Instant::fromEpochMilliseconds),
@@ -305,4 +511,17 @@ private fun toTaskProject(row: ResultRow): TaskProject = TaskProject(
     createdAt = Instant.fromEpochMilliseconds(row[TaskProjectsTable.createdAtEpochMillis]),
     updatedAt = Instant.fromEpochMilliseconds(row[TaskProjectsTable.updatedAtEpochMillis]),
     revision = row[TaskProjectsTable.revision],
+)
+
+private fun toTaskLabel(row: ResultRow): TaskLabel = TaskLabel(
+    id = row[TaskLabelsDefinitionTable.id],
+    name = row[TaskLabelsDefinitionTable.name],
+    color = TaskLabelColor.valueOf(row[TaskLabelsDefinitionTable.color]),
+    createdAt = Instant.fromEpochMilliseconds(
+        row[TaskLabelsDefinitionTable.createdAtEpochMillis],
+    ),
+    updatedAt = Instant.fromEpochMilliseconds(
+        row[TaskLabelsDefinitionTable.updatedAtEpochMillis],
+    ),
+    revision = row[TaskLabelsDefinitionTable.revision],
 )

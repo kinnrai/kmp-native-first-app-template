@@ -26,6 +26,8 @@ sealed interface TaskInsertResult {
     data object AlreadyExists : TaskInsertResult
 
     data object InvalidProject : TaskInsertResult
+
+    data object InvalidLabels : TaskInsertResult
 }
 
 sealed interface TaskMutationResult {
@@ -36,6 +38,8 @@ sealed interface TaskMutationResult {
     data object Conflict : TaskMutationResult
 
     data object InvalidProject : TaskMutationResult
+
+    data object InvalidLabels : TaskMutationResult
 }
 
 sealed interface TaskDeleteResult {

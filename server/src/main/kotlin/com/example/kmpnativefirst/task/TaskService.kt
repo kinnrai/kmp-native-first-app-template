@@ -33,19 +33,25 @@ class TaskService(
             title = request.title,
             notes = request.notes,
             projectId = request.projectId,
+            labelIds = request.labelIds,
             dueDate = request.dueDate,
             dueAt = request.dueAt,
         )
         if (issues.isNotEmpty()) {
             throw TaskValidationException(issues)
         }
-        val input = TaskValidator.normalize(request.title, request.notes)
+        val input = TaskValidator.normalize(
+            request.title,
+            request.notes,
+            request.labelIds,
+        )
         val now = clock.now()
         val task = Task(
             id = request.id,
             title = input.title,
             notes = input.notes,
             projectId = request.projectId,
+            labelIds = input.labelIds,
             priority = request.priority,
             dueDate = request.dueDate,
             dueAt = request.dueAt,
@@ -57,6 +63,7 @@ class TaskService(
             is TaskInsertResult.Inserted -> task
             TaskInsertResult.AlreadyExists -> throw TaskConflictException(task.id)
             TaskInsertResult.InvalidProject -> throw invalidProjectException()
+            TaskInsertResult.InvalidLabels -> throw invalidLabelsException()
         }
     }
 
@@ -68,16 +75,22 @@ class TaskService(
             title = request.title,
             notes = request.notes,
             projectId = request.projectId,
+            labelIds = request.labelIds,
             dueDate = request.dueDate,
             dueAt = request.dueAt,
             expectedRevision = request.expectedRevision,
         )
         val current = repository.find(id) ?: throw TaskNotFoundException(id)
-        val input = TaskValidator.normalize(request.title, request.notes)
+        val input = TaskValidator.normalize(
+            request.title,
+            request.notes,
+            request.labelIds,
+        )
         val replacement = current.copy(
             title = input.title,
             notes = input.notes,
             projectId = request.projectId,
+            labelIds = input.labelIds,
             priority = request.priority,
             dueDate = request.dueDate,
             dueAt = request.dueAt,
@@ -95,6 +108,7 @@ class TaskService(
             TaskMutationResult.NotFound -> throw TaskNotFoundException(id)
             TaskMutationResult.Conflict -> throw TaskConflictException(id)
             TaskMutationResult.InvalidProject -> throw invalidProjectException()
+            TaskMutationResult.InvalidLabels -> throw invalidLabelsException()
         }
     }
 
@@ -119,6 +133,7 @@ class TaskService(
         title: String,
         notes: String?,
         projectId: String?,
+        labelIds: List<String>,
         dueDate: LocalDate?,
         dueAt: Instant?,
         expectedRevision: Long? = null,
@@ -127,6 +142,7 @@ class TaskService(
             title = title,
             notes = notes,
             projectId = projectId,
+            labelIds = labelIds,
             dueDate = dueDate,
             dueAt = dueAt,
             expectedRevision = expectedRevision,
@@ -157,6 +173,15 @@ private fun invalidProjectException() = TaskValidationException(
     listOf(
         TaskValidationIssue(
             field = TaskField.PROJECT_ID,
+            code = TaskValidationCode.INVALID,
+        ),
+    ),
+)
+
+private fun invalidLabelsException() = TaskValidationException(
+    listOf(
+        TaskValidationIssue(
+            field = TaskField.LABEL_IDS,
             code = TaskValidationCode.INVALID,
         ),
     ),

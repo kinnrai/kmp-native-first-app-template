@@ -65,9 +65,44 @@ class TaskMergeTest {
         assertEquals(setOf(TaskConflictField.PROJECT), result.fields)
     }
 
+    @Test
+    fun mergesConcurrentLabelMembershipChanges() {
+        val base = task(labelIds = listOf(LABEL_ID_1))
+        val local = base.copy(labelIds = listOf(LABEL_ID_1, LABEL_ID_2))
+        val remote = base.copy(
+            title = "Remote title",
+            labelIds = listOf(LABEL_ID_1, LABEL_ID_3),
+            revision = 2,
+        )
+
+        val merged = assertIs<TaskMergeResult.Merged>(
+            TaskMerge.merge(base, local, remote),
+        )
+        assertEquals(
+            listOf(LABEL_ID_1, LABEL_ID_2, LABEL_ID_3),
+            merged.task.labelIds,
+        )
+        assertEquals("Remote title", merged.task.title)
+
+        val removal = assertIs<TaskMergeResult.Merged>(
+            TaskMerge.merge(
+                base = base,
+                local = local,
+                remote = base.copy(
+                    labelIds = emptyList(),
+                    revision = 2,
+                ),
+            ),
+        )
+        assertEquals(listOf(LABEL_ID_2), removal.task.labelIds)
+    }
+
     private companion object {
         const val PROJECT_ID_1 = "10000000-0000-4000-8000-000000000001"
         const val PROJECT_ID_2 = "10000000-0000-4000-8000-000000000002"
         const val PROJECT_ID_3 = "10000000-0000-4000-8000-000000000003"
+        const val LABEL_ID_1 = "20000000-0000-4000-8000-000000000001"
+        const val LABEL_ID_2 = "20000000-0000-4000-8000-000000000002"
+        const val LABEL_ID_3 = "20000000-0000-4000-8000-000000000003"
     }
 }

@@ -47,6 +47,7 @@ internal class OfflineFirstTaskRepository(
             title = draft.title,
             notes = draft.notes,
             projectId = draft.projectId,
+            labelIds = draft.labelIds,
             dueDate = draft.dueDate,
             dueAt = draft.dueAt,
         )
@@ -57,6 +58,7 @@ internal class OfflineFirstTaskRepository(
             title = input.title,
             notes = input.notes,
             projectId = draft.projectId,
+            labelIds = input.labelIds,
             priority = draft.priority,
             dueDate = draft.dueDate,
             dueAt = draft.dueAt,
@@ -79,10 +81,12 @@ internal class OfflineFirstTaskRepository(
     ): Task {
         val current = local.findTask(taskId)?.task
             ?: throw CachedTaskNotFoundException(taskId)
+        val labelIds = edit.labelIds ?: current.labelIds
         val input = validateAndNormalize(
             title = edit.title,
             notes = edit.notes,
             projectId = edit.projectId,
+            labelIds = labelIds,
             dueDate = edit.dueDate,
             dueAt = edit.dueAt,
         )
@@ -91,6 +95,7 @@ internal class OfflineFirstTaskRepository(
             title = input.title,
             notes = input.notes,
             projectId = edit.projectId,
+            labelIds = input.labelIds,
             priority = edit.priority,
             dueDate = edit.dueDate,
             dueAt = edit.dueAt,
@@ -141,10 +146,16 @@ internal class OfflineFirstTaskRepository(
         resolution: TaskConflictResolution,
     ) {
         val normalizedResolution = if (resolution is TaskConflictResolution.Merge) {
+            val conflict = conflicts.first()
+                .firstOrNull { candidate -> candidate.taskId == taskId }
+                ?: throw CachedTaskNotFoundException(taskId)
+            val source = conflict.local ?: conflict.remote
+                ?: throw CachedTaskNotFoundException(taskId)
             val input = validateAndNormalize(
                 title = resolution.edit.title,
                 notes = resolution.edit.notes,
                 projectId = resolution.edit.projectId,
+                labelIds = resolution.edit.labelIds ?: source.labelIds,
                 dueDate = resolution.edit.dueDate,
                 dueAt = resolution.edit.dueAt,
             )
@@ -153,6 +164,7 @@ internal class OfflineFirstTaskRepository(
                 edit = resolution.edit.copy(
                     title = input.title,
                     notes = input.notes,
+                    labelIds = input.labelIds,
                 ),
             )
         } else {
@@ -749,13 +761,15 @@ internal class OfflineFirstTaskRepository(
         title: String,
         notes: String?,
         projectId: String?,
+        labelIds: List<String>,
         dueDate: LocalDate?,
         dueAt: Instant?,
-    ) = TaskValidator.normalize(title, notes).also {
+    ) = TaskValidator.normalize(title, notes, labelIds).also {
         val issues = TaskValidator.validate(
             title = title,
             notes = notes,
             projectId = projectId,
+            labelIds = labelIds,
             dueDate = dueDate,
             dueAt = dueAt,
         )

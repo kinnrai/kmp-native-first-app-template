@@ -9,6 +9,7 @@ import kotlin.uuid.Uuid
 object TaskConstraints {
     const val MAX_TITLE_LENGTH = 120
     const val MAX_NOTES_LENGTH = 2_000
+    const val MAX_LABELS_PER_TASK = 20
 }
 
 @Serializable
@@ -24,6 +25,9 @@ enum class TaskField {
 
     @SerialName("projectId")
     PROJECT_ID,
+
+    @SerialName("labelIds")
+    LABEL_IDS,
 
     @SerialName("dueDate")
     DUE_DATE,
@@ -43,6 +47,9 @@ enum class TaskValidationCode {
     @SerialName("too_long")
     TOO_LONG,
 
+    @SerialName("too_many")
+    TOO_MANY,
+
     @SerialName("invalid")
     INVALID,
 }
@@ -55,26 +62,30 @@ data class TaskValidationIssue(
 data class NormalizedTaskInput(
     val title: String,
     val notes: String?,
+    val labelIds: List<String>,
 )
 
 object TaskValidator {
     fun normalize(
         title: String,
         notes: String?,
+        labelIds: List<String> = emptyList(),
     ): NormalizedTaskInput = NormalizedTaskInput(
         title = title.trim(),
         notes = notes?.trim()?.takeIf(String::isNotEmpty),
+        labelIds = labelIds.distinct().sorted(),
     )
 
     fun validate(
         title: String,
         notes: String?,
         projectId: String? = null,
+        labelIds: List<String> = emptyList(),
         dueDate: LocalDate? = null,
         dueAt: Instant? = null,
         expectedRevision: Long? = null,
     ): List<TaskValidationIssue> {
-        val input = normalize(title, notes)
+        val input = normalize(title, notes, labelIds)
         return buildList {
             if (input.title.isEmpty()) {
                 add(TaskValidationIssue(TaskField.TITLE, TaskValidationCode.REQUIRED))
@@ -88,6 +99,12 @@ object TaskValidator {
 
             if (projectId != null && Uuid.parseOrNull(projectId) == null) {
                 add(TaskValidationIssue(TaskField.PROJECT_ID, TaskValidationCode.INVALID))
+            }
+
+            if (input.labelIds.size > TaskConstraints.MAX_LABELS_PER_TASK) {
+                add(TaskValidationIssue(TaskField.LABEL_IDS, TaskValidationCode.TOO_MANY))
+            } else if (input.labelIds.any { Uuid.parseOrNull(it) == null }) {
+                add(TaskValidationIssue(TaskField.LABEL_IDS, TaskValidationCode.INVALID))
             }
 
             if (dueDate != null && dueAt != null) {
@@ -106,6 +123,7 @@ object TaskValidator {
         title: String,
         notes: String?,
         projectId: String? = null,
+        labelIds: List<String> = emptyList(),
         dueDate: LocalDate? = null,
         dueAt: Instant? = null,
     ): List<TaskValidationIssue> = buildList {
@@ -117,6 +135,7 @@ object TaskValidator {
                 title = title,
                 notes = notes,
                 projectId = projectId,
+                labelIds = labelIds,
                 dueDate = dueDate,
                 dueAt = dueAt,
             ),
