@@ -23,7 +23,13 @@ class SqlDelightTaskLocalDataSourceTest {
                 databasePath = path.toString(),
                 baseUrl = "http://127.0.0.1:8080",
             )
-            first.create(TaskDraft(title = "Resume later"))
+            val label = first.createLabel(TaskLabelDraft(name = "Focus"))
+            first.create(
+                TaskDraft(
+                    title = "Resume later",
+                    labelIds = listOf(label.id),
+                ),
+            )
             first.close()
 
             val reopened = createTaskRepository(
@@ -31,8 +37,9 @@ class SqlDelightTaskLocalDataSourceTest {
                 baseUrl = "http://127.0.0.1:8080",
             )
             try {
-                assertEquals(1, reopened.syncStatus.value.pendingCount)
+                assertEquals(2, reopened.syncStatus.value.pendingCount)
                 assertEquals("Resume later", reopened.tasks.first().single().task.title)
+                assertEquals(label.id, reopened.labels.first().single().label.id)
             } finally {
                 reopened.close()
             }
@@ -196,6 +203,118 @@ class SqlDelightTaskLocalDataSourceTest {
                 assertEquals(
                     TaskMutationKind.DELETE,
                     source.nextProjectMutation(true)?.kind,
+                )
+            }
+        } finally {
+            Files.deleteIfExists(path)
+            Files.deleteIfExists(Path.of("$path-shm"))
+            Files.deleteIfExists(Path.of("$path-wal"))
+        }
+    }
+
+    @Test
+    fun persistsLabelsAndTheirOutboxAcrossReopen() = runTest {
+        val path = Files.createTempFile("task-label-cache-", ".db")
+        Files.delete(path)
+        try {
+            val label = taskLabel(revision = 0)
+            open(path).useSource { source ->
+                source.applyLabelCreate(
+                    label,
+                    operationId = "create-label",
+                    enqueuedAt = TEST_INSTANT,
+                )
+            }
+
+            open(path).useSource { reopened ->
+                assertEquals(label, reopened.findLabel(label.id)?.label)
+                assertEquals(
+                    TaskSyncState.PENDING,
+                    reopened.findLabel(label.id)?.syncState,
+                )
+                assertEquals(
+                    "create-label",
+                    reopened.nextLabelMutation(false)?.operationId,
+                )
+                assertEquals(1, reopened.pendingLabelCount())
+            }
+        } finally {
+            Files.deleteIfExists(path)
+            Files.deleteIfExists(Path.of("$path-shm"))
+            Files.deleteIfExists(Path.of("$path-wal"))
+        }
+    }
+
+    @Test
+    fun deletesALabelAndUnassignsTasksInOneDatabaseTransaction() = runTest {
+        val path = Files.createTempFile("task-label-cache-", ".db")
+        Files.delete(path)
+        try {
+            open(path).useSource { source ->
+                val label = taskLabel()
+                val assigned = task(labelIds = listOf(label.id, LABEL_ID_2))
+                source.replaceRemoteLabelSnapshot(
+                    listOf(label),
+                    taskOperationId = { "unused" },
+                    changedAt = TEST_INSTANT,
+                )
+                source.replaceRemoteSnapshot(listOf(assigned))
+
+                source.applyLabelDelete(
+                    labelId = label.id,
+                    operationId = "delete-label",
+                    taskOperationId = { "unassign-task" },
+                    enqueuedAt = TEST_INSTANT,
+                )
+
+                assertNull(source.findLabel(label.id))
+                assertEquals(
+                    listOf(LABEL_ID_2),
+                    source.findTask(assigned.id)?.task?.labelIds,
+                )
+                assertEquals(TaskMutationKind.UPDATE, source.nextMutation()?.kind)
+                assertEquals(
+                    TaskMutationKind.DELETE,
+                    source.nextLabelMutation(true)?.kind,
+                )
+            }
+        } finally {
+            Files.deleteIfExists(path)
+            Files.deleteIfExists(Path.of("$path-shm"))
+            Files.deleteIfExists(Path.of("$path-wal"))
+        }
+    }
+
+    @Test
+    fun remoteLabelRemovalUnassignsSyncedTasksWithoutCreatingAnOutboxEntry() = runTest {
+        val path = Files.createTempFile("task-label-cache-", ".db")
+        Files.delete(path)
+        try {
+            open(path).useSource { source ->
+                val label = taskLabel()
+                val assigned = task(labelIds = listOf(label.id, LABEL_ID_2))
+                source.replaceRemoteLabelSnapshot(
+                    listOf(label),
+                    taskOperationId = { "unused" },
+                    changedAt = TEST_INSTANT,
+                )
+                source.replaceRemoteSnapshot(listOf(assigned))
+
+                source.replaceRemoteLabelSnapshot(
+                    emptyList(),
+                    taskOperationId = { "must-not-be-used" },
+                    changedAt = TEST_INSTANT,
+                )
+
+                assertNull(source.findLabel(label.id))
+                assertEquals(
+                    listOf(LABEL_ID_2),
+                    source.findTask(assigned.id)?.task?.labelIds,
+                )
+                assertNull(source.nextMutation())
+                assertEquals(
+                    TaskSyncState.SYNCED,
+                    source.findTask(assigned.id)?.syncState,
                 )
             }
         } finally {

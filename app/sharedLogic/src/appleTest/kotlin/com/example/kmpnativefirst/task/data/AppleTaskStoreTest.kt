@@ -250,6 +250,9 @@ private class RecordingTaskRepository : TaskRepository {
     override val projects: Flow<List<TaskProjectItem>> = projectItems
     override val projectConflicts: Flow<List<TaskProjectConflict>> =
         projectConflictItems
+    override val labels = MutableStateFlow<List<TaskLabelItem>>(emptyList())
+    override val labelConflicts =
+        MutableStateFlow<List<TaskLabelConflict>>(emptyList())
     override val syncStatus: StateFlow<TaskSyncStatus> = status
 
     override suspend fun create(draft: TaskDraft): Task {
@@ -301,6 +304,22 @@ private class RecordingTaskRepository : TaskRepository {
     ) {
         projectResolution = resolution
     }
+
+    override suspend fun createLabel(draft: TaskLabelDraft) =
+        error("Label operations are outside this Apple task-store test.")
+
+    override suspend fun updateLabel(
+        labelId: String,
+        edit: TaskLabelEdit,
+    ) = error("Label operations are outside this Apple task-store test.")
+
+    override suspend fun deleteLabel(labelId: String) =
+        error("Label operations are outside this Apple task-store test.")
+
+    override suspend fun resolveLabelConflict(
+        labelId: String,
+        resolution: TaskLabelConflictResolution,
+    ) = error("Label operations are outside this Apple task-store test.")
 
     override suspend fun sync(): TaskSyncResult =
         TaskSyncResult.Success(

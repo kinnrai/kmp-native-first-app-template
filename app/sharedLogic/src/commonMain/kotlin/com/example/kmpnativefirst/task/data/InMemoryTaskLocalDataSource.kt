@@ -1,6 +1,7 @@
 package com.example.kmpnativefirst.task.data
 
 import com.example.kmpnativefirst.task.Task
+import com.example.kmpnativefirst.task.TaskLabel
 import com.example.kmpnativefirst.task.TaskProject
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -13,10 +14,11 @@ import kotlin.time.Instant
 internal class InMemoryTaskLocalDataSource(
     initialTasks: List<Task> = emptyList(),
     initialProjects: List<TaskProject> = emptyList(),
+    initialLabels: List<TaskLabel> = emptyList(),
     restoredState: TaskLocalState? = null,
     private val persistState: suspend (TaskLocalState) -> Unit = {},
     private val closeState: () -> Unit = {},
-) : TaskLocalDataSource, TaskProjectLocalDataSource {
+) : TaskLocalDataSource, TaskProjectLocalDataSource, TaskLabelLocalDataSource {
     private val mutex = Mutex()
     private val records = restoredState?.records?.toMutableMap()
         ?: initialTasks.associate { task ->
@@ -42,6 +44,18 @@ internal class InMemoryTaskLocalDataSource(
         ?: mutableMapOf()
     private val projectConflicts = restoredState?.projectConflicts?.toMutableMap()
         ?: mutableMapOf()
+    private val labelRecords = restoredState?.labelRecords?.toMutableMap()
+        ?: initialLabels.associate { label ->
+            label.id to LocalTaskLabelRecord(
+                label = label,
+                syncState = TaskSyncState.SYNCED,
+                isDeleted = false,
+            )
+        }.toMutableMap()
+    private val labelOutbox = restoredState?.labelOutbox?.toMutableMap()
+        ?: mutableMapOf()
+    private val labelConflicts = restoredState?.labelConflicts?.toMutableMap()
+        ?: mutableMapOf()
     private val taskFlow = MutableStateFlow(visibleTasks())
     private val conflictFlow = MutableStateFlow(
         conflicts.values.sortedByDescending(TaskConflict::detectedAt),
@@ -49,6 +63,10 @@ internal class InMemoryTaskLocalDataSource(
     private val projectFlow = MutableStateFlow(visibleProjects())
     private val projectConflictFlow = MutableStateFlow(
         projectConflicts.values.sortedByDescending(TaskProjectConflict::detectedAt),
+    )
+    private val labelFlow = MutableStateFlow(visibleLabels())
+    private val labelConflictFlow = MutableStateFlow(
+        labelConflicts.values.sortedByDescending(TaskLabelConflict::detectedAt),
     )
 
     override fun observeTasks(): Flow<List<TaskItem>> = taskFlow.asStateFlow()
@@ -59,6 +77,11 @@ internal class InMemoryTaskLocalDataSource(
 
     override fun observeProjectConflicts(): Flow<List<TaskProjectConflict>> =
         projectConflictFlow.asStateFlow()
+
+    override fun observeLabels(): Flow<List<TaskLabelItem>> = labelFlow.asStateFlow()
+
+    override fun observeLabelConflicts(): Flow<List<TaskLabelConflict>> =
+        labelConflictFlow.asStateFlow()
 
     override suspend fun findTask(id: String): TaskItem? = mutex.withLock {
         records[id]
@@ -80,6 +103,18 @@ internal class InMemoryTaskLocalDataSource(
 
     override suspend fun projectConflictCount(): Int = mutex.withLock {
         projectConflicts.size
+    }
+
+    override suspend fun findLabel(id: String): TaskLabelItem? = mutex.withLock {
+        labelRecords[id]
+            ?.takeUnless(LocalTaskLabelRecord::isDeleted)
+            ?.toLabelItem()
+    }
+
+    override suspend fun pendingLabelCount(): Int = mutex.withLock { labelOutbox.size }
+
+    override suspend fun labelConflictCount(): Int = mutex.withLock {
+        labelConflicts.size
     }
 
     override suspend fun applyCreate(
@@ -585,6 +620,282 @@ internal class InMemoryTaskLocalDataSource(
         projectConflicts.remove(projectId)
     }
 
+    override suspend fun applyLabelCreate(
+        label: TaskLabel,
+        operationId: String,
+        enqueuedAt: Instant,
+    ) = mutate {
+        if (label.id in labelRecords) {
+            throw DuplicateCachedTaskLabelException(label.id)
+        }
+        labelRecords[label.id] = LocalTaskLabelRecord(
+            label,
+            TaskSyncState.PENDING,
+            isDeleted = false,
+        )
+        labelOutbox[label.id] = PendingTaskLabelMutation(
+            operationId = operationId,
+            labelId = label.id,
+            kind = TaskMutationKind.CREATE,
+            base = null,
+            desired = label,
+            enqueuedAt = enqueuedAt,
+        )
+    }
+
+    override suspend fun applyLabelUpdate(
+        label: TaskLabel,
+        operationId: String,
+        enqueuedAt: Instant,
+    ) = mutate {
+        applyLabelUpdateLocked(label, operationId, enqueuedAt)
+    }
+
+    override suspend fun applyLabelDelete(
+        labelId: String,
+        operationId: String,
+        taskOperationId: () -> String,
+        enqueuedAt: Instant,
+    ) = mutate {
+        val current = labelRecords[labelId]
+            ?.takeUnless(LocalTaskLabelRecord::isDeleted)
+            ?: throw CachedTaskLabelNotFoundException(labelId)
+        if (current.syncState == TaskSyncState.CONFLICT) {
+            throw UnresolvedTaskLabelConflictException(labelId)
+        }
+        conflicts.values
+            .firstOrNull { conflict -> conflict.referencesLabel(labelId) }
+            ?.let { throw UnresolvedTaskConflictException(it.taskId) }
+        clearLabelReferences(
+            labelIds = setOf(labelId),
+            taskOperationId = taskOperationId,
+            changedAt = enqueuedAt,
+            enqueueSyncedTasks = true,
+        )
+        val currentMutation = labelOutbox[labelId]
+        if (currentMutation?.kind == TaskMutationKind.CREATE) {
+            labelRecords.remove(labelId)
+            labelOutbox.remove(labelId)
+            labelConflicts.remove(labelId)
+            return@mutate
+        }
+        labelRecords[labelId] = current.copy(
+            syncState = TaskSyncState.PENDING,
+            isDeleted = true,
+        )
+        labelOutbox[labelId] = PendingTaskLabelMutation(
+            operationId = operationId,
+            labelId = labelId,
+            kind = TaskMutationKind.DELETE,
+            base = currentMutation?.base ?: current.label,
+            desired = null,
+            enqueuedAt = enqueuedAt,
+        )
+    }
+
+    override suspend fun nextLabelMutation(
+        deletionsOnly: Boolean,
+    ): PendingTaskLabelMutation? = mutex.withLock {
+        labelOutbox.values
+            .asSequence()
+            .filter { mutation ->
+                (mutation.kind == TaskMutationKind.DELETE) == deletionsOnly
+            }
+            .minWithOrNull(
+                compareBy(
+                    PendingTaskLabelMutation::enqueuedAt,
+                    PendingTaskLabelMutation::operationId,
+                ),
+            )
+    }
+
+    override suspend fun acknowledgeLabelMutation(
+        mutation: PendingTaskLabelMutation,
+        remoteLabel: TaskLabel,
+    ): Boolean = mutateWithResult {
+        val current = labelOutbox[mutation.labelId]
+            ?: return@mutateWithResult false
+        if (current.operationId == mutation.operationId) {
+            labelOutbox.remove(mutation.labelId)
+            labelConflicts.remove(mutation.labelId)
+            labelRecords[mutation.labelId] = LocalTaskLabelRecord(
+                label = remoteLabel,
+                syncState = TaskSyncState.SYNCED,
+                isDeleted = false,
+            )
+            return@mutateWithResult true
+        }
+
+        val rebasedDesired = current.desired?.let { desired ->
+            desired.copy(
+                createdAt = remoteLabel.createdAt,
+                revision = remoteLabel.revision,
+            )
+        }
+        labelOutbox[mutation.labelId] = current.copy(
+            kind = if (current.kind == TaskMutationKind.DELETE) {
+                TaskMutationKind.DELETE
+            } else {
+                TaskMutationKind.UPDATE
+            },
+            base = remoteLabel,
+            desired = rebasedDesired,
+        )
+        labelRecords[mutation.labelId] = LocalTaskLabelRecord(
+            label = rebasedDesired ?: remoteLabel,
+            syncState = TaskSyncState.PENDING,
+            isDeleted = current.kind == TaskMutationKind.DELETE,
+        )
+        true
+    }
+
+    override suspend fun acknowledgeLabelDelete(
+        mutation: PendingTaskLabelMutation,
+    ): Boolean = mutateWithResult {
+        val current = labelOutbox[mutation.labelId]
+            ?: return@mutateWithResult false
+        if (current.operationId != mutation.operationId) {
+            return@mutateWithResult false
+        }
+        labelOutbox.remove(mutation.labelId)
+        labelConflicts.remove(mutation.labelId)
+        labelRecords.remove(mutation.labelId)
+        true
+    }
+
+    override suspend fun rebaseLabelMutation(
+        mutation: PendingTaskLabelMutation,
+        remoteBase: TaskLabel,
+        mergedLabel: TaskLabel,
+    ): Boolean = mutateWithResult {
+        val current = labelOutbox[mutation.labelId]
+            ?: return@mutateWithResult false
+        if (current.operationId != mutation.operationId) {
+            return@mutateWithResult false
+        }
+        val desired = mergedLabel.copy(
+            createdAt = remoteBase.createdAt,
+            revision = remoteBase.revision,
+        )
+        labelOutbox[mutation.labelId] = current.copy(
+            kind = TaskMutationKind.UPDATE,
+            base = remoteBase,
+            desired = desired,
+        )
+        labelRecords[mutation.labelId] = LocalTaskLabelRecord(
+            label = desired,
+            syncState = TaskSyncState.PENDING,
+            isDeleted = false,
+        )
+        true
+    }
+
+    override suspend fun recordLabelConflict(
+        mutation: PendingTaskLabelMutation,
+        conflict: TaskLabelConflict,
+    ): Boolean = mutateWithResult {
+        val current = labelOutbox[mutation.labelId]
+            ?: return@mutateWithResult false
+        if (current.operationId != mutation.operationId) {
+            return@mutateWithResult false
+        }
+        labelOutbox.remove(mutation.labelId)
+        labelConflicts[mutation.labelId] = conflict
+        val visibleLabel = conflict.local ?: conflict.remote
+        if (visibleLabel == null) {
+            labelRecords.remove(mutation.labelId)
+        } else {
+            labelRecords[mutation.labelId] = LocalTaskLabelRecord(
+                label = visibleLabel,
+                syncState = TaskSyncState.CONFLICT,
+                isDeleted = false,
+            )
+        }
+        true
+    }
+
+    override suspend fun replaceRemoteLabelSnapshot(
+        remoteLabels: List<TaskLabel>,
+        taskOperationId: () -> String,
+        changedAt: Instant,
+    ): Int = mutateWithResult {
+        val remoteById = remoteLabels.associateBy(TaskLabel::id)
+        val conflictReferencedIds = conflicts.values
+            .flatMapTo(mutableSetOf()) { it.referencedLabelIds() }
+        val mutationProtectedIds = labelOutbox.keys + labelConflicts.keys
+        val removalProtectedIds = mutationProtectedIds + conflictReferencedIds
+        val removableIds = labelRecords
+            .filterValues { record -> record.syncState == TaskSyncState.SYNCED }
+            .keys - remoteById.keys - removalProtectedIds
+        clearLabelReferences(
+            labelIds = removableIds,
+            taskOperationId = taskOperationId,
+            changedAt = changedAt,
+            enqueueSyncedTasks = false,
+        )
+        removableIds.forEach(labelRecords::remove)
+
+        remoteById.forEach { (id, label) ->
+            if (id !in mutationProtectedIds) {
+                labelRecords[id] = LocalTaskLabelRecord(
+                    label = label,
+                    syncState = TaskSyncState.SYNCED,
+                    isDeleted = false,
+                )
+            }
+        }
+        remoteLabels.size
+    }
+
+    override suspend fun resolveLabelConflict(
+        labelId: String,
+        resolution: TaskLabelConflictResolution,
+        operationId: String,
+        taskOperationId: () -> String,
+        enqueuedAt: Instant,
+    ) = mutate {
+        val conflict = labelConflicts[labelId]
+            ?: throw CachedTaskLabelNotFoundException(labelId)
+        when (resolution) {
+            TaskLabelConflictResolution.UseRemote -> {
+                labelOutbox.remove(labelId)
+                val remote = conflict.remote
+                if (remote == null) {
+                    clearLabelReferences(
+                        labelIds = setOf(labelId),
+                        taskOperationId = taskOperationId,
+                        changedAt = enqueuedAt,
+                        enqueueSyncedTasks = true,
+                    )
+                    labelRecords.remove(labelId)
+                } else {
+                    labelRecords[labelId] = LocalTaskLabelRecord(
+                        label = remote,
+                        syncState = TaskSyncState.SYNCED,
+                        isDeleted = false,
+                    )
+                }
+            }
+            TaskLabelConflictResolution.KeepLocal -> enqueueLabelResolution(
+                conflict = conflict,
+                desired = conflict.local,
+                operationId = operationId,
+                enqueuedAt = enqueuedAt,
+            )
+            is TaskLabelConflictResolution.Merge -> {
+                val source = conflict.local ?: conflict.remote
+                    ?: throw CachedTaskLabelNotFoundException(labelId)
+                enqueueLabelResolution(
+                    conflict = conflict,
+                    desired = source.withEdit(resolution.edit),
+                    operationId = operationId,
+                    enqueuedAt = enqueuedAt,
+                )
+            }
+        }
+        labelConflicts.remove(labelId)
+    }
+
     override fun close() {
         closeState()
     }
@@ -664,6 +975,44 @@ internal class InMemoryTaskLocalDataSource(
         }
     }
 
+    private fun applyLabelUpdateLocked(
+        label: TaskLabel,
+        operationId: String,
+        enqueuedAt: Instant,
+    ) {
+        val current = labelRecords[label.id]
+            ?.takeUnless(LocalTaskLabelRecord::isDeleted)
+            ?: throw CachedTaskLabelNotFoundException(label.id)
+        if (current.syncState == TaskSyncState.CONFLICT) {
+            throw UnresolvedTaskLabelConflictException(label.id)
+        }
+        val currentMutation = labelOutbox[label.id]
+        labelRecords[label.id] = LocalTaskLabelRecord(
+            label,
+            TaskSyncState.PENDING,
+            isDeleted = false,
+        )
+        labelOutbox[label.id] = when (currentMutation?.kind) {
+            TaskMutationKind.CREATE,
+            TaskMutationKind.UPDATE,
+            -> currentMutation.copy(
+                operationId = operationId,
+                desired = label,
+                enqueuedAt = enqueuedAt,
+            )
+            TaskMutationKind.DELETE ->
+                throw InvalidCachedTaskLabelStateException(label.id)
+            null -> PendingTaskLabelMutation(
+                operationId = operationId,
+                labelId = label.id,
+                kind = TaskMutationKind.UPDATE,
+                base = current.label,
+                desired = label,
+                enqueuedAt = enqueuedAt,
+            )
+        }
+    }
+
     private fun clearProjectReferences(
         projectIds: Set<String>,
         taskOperationId: () -> String,
@@ -678,6 +1027,34 @@ internal class InMemoryTaskLocalDataSource(
             .forEach { record ->
                 val updated = record.task.copy(
                     projectId = null,
+                    updatedAt = changedAt,
+                )
+                if (record.syncState == TaskSyncState.PENDING || enqueueSyncedTasks) {
+                    applyTaskUpdateLocked(
+                        task = updated,
+                        operationId = taskOperationId(),
+                        enqueuedAt = changedAt,
+                    )
+                } else {
+                    records[record.task.id] = record.copy(task = updated)
+                }
+            }
+    }
+
+    private fun clearLabelReferences(
+        labelIds: Set<String>,
+        taskOperationId: () -> String,
+        changedAt: Instant,
+        enqueueSyncedTasks: Boolean,
+    ) {
+        if (labelIds.isEmpty()) return
+        records.values
+            .filter { record ->
+                !record.isDeleted && record.task.labelIds.any(labelIds::contains)
+            }
+            .forEach { record ->
+                val updated = record.task.copy(
+                    labelIds = record.task.labelIds - labelIds,
                     updatedAt = changedAt,
                 )
                 if (record.syncState == TaskSyncState.PENDING || enqueueSyncedTasks) {
@@ -748,6 +1125,71 @@ internal class InMemoryTaskLocalDataSource(
                 projectOutbox[conflict.projectId] = PendingTaskProjectMutation(
                     operationId,
                     conflict.projectId,
+                    TaskMutationKind.UPDATE,
+                    base = remote,
+                    desired = update,
+                    enqueuedAt,
+                )
+            }
+        }
+    }
+
+    private fun enqueueLabelResolution(
+        conflict: TaskLabelConflict,
+        desired: TaskLabel?,
+        operationId: String,
+        enqueuedAt: Instant,
+    ) {
+        val remote = conflict.remote
+        when {
+            remote == null && desired == null -> {
+                labelRecords.remove(conflict.labelId)
+                labelOutbox.remove(conflict.labelId)
+            }
+            remote == null -> {
+                val create = requireNotNull(desired).copy(revision = 0)
+                labelRecords[conflict.labelId] = LocalTaskLabelRecord(
+                    create,
+                    TaskSyncState.PENDING,
+                    isDeleted = false,
+                )
+                labelOutbox[conflict.labelId] = PendingTaskLabelMutation(
+                    operationId,
+                    conflict.labelId,
+                    TaskMutationKind.CREATE,
+                    base = null,
+                    desired = create,
+                    enqueuedAt,
+                )
+            }
+            desired == null -> {
+                labelRecords[conflict.labelId] = LocalTaskLabelRecord(
+                    remote,
+                    TaskSyncState.PENDING,
+                    isDeleted = true,
+                )
+                labelOutbox[conflict.labelId] = PendingTaskLabelMutation(
+                    operationId,
+                    conflict.labelId,
+                    TaskMutationKind.DELETE,
+                    base = remote,
+                    desired = null,
+                    enqueuedAt,
+                )
+            }
+            else -> {
+                val update = desired.copy(
+                    createdAt = remote.createdAt,
+                    revision = remote.revision,
+                )
+                labelRecords[conflict.labelId] = LocalTaskLabelRecord(
+                    update,
+                    TaskSyncState.PENDING,
+                    isDeleted = false,
+                )
+                labelOutbox[conflict.labelId] = PendingTaskLabelMutation(
+                    operationId,
+                    conflict.labelId,
                     TaskMutationKind.UPDATE,
                     base = remote,
                     desired = update,
@@ -852,6 +1294,9 @@ internal class InMemoryTaskLocalDataSource(
         projectRecords = projectRecords.toMap(),
         projectOutbox = projectOutbox.toMap(),
         projectConflicts = projectConflicts.toMap(),
+        labelRecords = labelRecords.toMap(),
+        labelOutbox = labelOutbox.toMap(),
+        labelConflicts = labelConflicts.toMap(),
     )
 
     private fun restore(state: TaskLocalState) {
@@ -867,6 +1312,12 @@ internal class InMemoryTaskLocalDataSource(
         projectOutbox.putAll(state.projectOutbox)
         projectConflicts.clear()
         projectConflicts.putAll(state.projectConflicts)
+        labelRecords.clear()
+        labelRecords.putAll(state.labelRecords)
+        labelOutbox.clear()
+        labelOutbox.putAll(state.labelOutbox)
+        labelConflicts.clear()
+        labelConflicts.putAll(state.labelConflicts)
     }
 
     private fun publish() {
@@ -875,6 +1326,9 @@ internal class InMemoryTaskLocalDataSource(
         projectFlow.value = visibleProjects()
         projectConflictFlow.value =
             projectConflicts.values.sortedByDescending(TaskProjectConflict::detectedAt)
+        labelFlow.value = visibleLabels()
+        labelConflictFlow.value =
+            labelConflicts.values.sortedByDescending(TaskLabelConflict::detectedAt)
     }
 
     private fun visibleTasks(): List<TaskItem> = records.values
@@ -889,6 +1343,13 @@ internal class InMemoryTaskLocalDataSource(
         .filterNot(LocalTaskProjectRecord::isDeleted)
         .map(LocalTaskProjectRecord::toProjectItem)
         .sortedBy { it.project.name.lowercase() }
+        .toList()
+
+    private fun visibleLabels(): List<TaskLabelItem> = labelRecords.values
+        .asSequence()
+        .filterNot(LocalTaskLabelRecord::isDeleted)
+        .map(LocalTaskLabelRecord::toLabelItem)
+        .sortedBy { it.label.name.lowercase() }
         .toList()
 }
 
@@ -911,6 +1372,15 @@ internal data class LocalTaskProjectRecord(
 }
 
 @Serializable
+internal data class LocalTaskLabelRecord(
+    val label: TaskLabel,
+    val syncState: TaskSyncState,
+    val isDeleted: Boolean,
+) {
+    fun toLabelItem(): TaskLabelItem = TaskLabelItem(label, syncState)
+}
+
+@Serializable
 internal data class TaskLocalState(
     val records: Map<String, LocalTaskRecord> = emptyMap(),
     val outbox: Map<String, PendingTaskMutation> = emptyMap(),
@@ -918,6 +1388,9 @@ internal data class TaskLocalState(
     val projectRecords: Map<String, LocalTaskProjectRecord> = emptyMap(),
     val projectOutbox: Map<String, PendingTaskProjectMutation> = emptyMap(),
     val projectConflicts: Map<String, TaskProjectConflict> = emptyMap(),
+    val labelRecords: Map<String, LocalTaskLabelRecord> = emptyMap(),
+    val labelOutbox: Map<String, PendingTaskLabelMutation> = emptyMap(),
+    val labelConflicts: Map<String, TaskLabelConflict> = emptyMap(),
 )
 
 private fun Task.withEdit(edit: TaskEdit): Task = copy(
@@ -936,6 +1409,11 @@ private fun TaskProject.withEdit(edit: TaskProjectEdit): TaskProject = copy(
     color = edit.color,
 )
 
+private fun TaskLabel.withEdit(edit: TaskLabelEdit): TaskLabel = copy(
+    name = edit.name,
+    color = edit.color,
+)
+
 private fun TaskConflict.referencesProject(projectId: String): Boolean =
     projectId in referencedProjectIds()
 
@@ -943,6 +1421,15 @@ private fun TaskConflict.referencedProjectIds(): Set<String> = buildSet {
     base?.projectId?.let(::add)
     local?.projectId?.let(::add)
     remote?.projectId?.let(::add)
+}
+
+private fun TaskConflict.referencesLabel(labelId: String): Boolean =
+    labelId in referencedLabelIds()
+
+private fun TaskConflict.referencedLabelIds(): Set<String> = buildSet {
+    base?.labelIds?.let(::addAll)
+    local?.labelIds?.let(::addAll)
+    remote?.labelIds?.let(::addAll)
 }
 
 private val taskItemComparator = compareBy<TaskItem>(

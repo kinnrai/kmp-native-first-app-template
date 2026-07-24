@@ -20,6 +20,11 @@ class NativeSqlDelightTaskLocalDataSourceTest {
         val source = SqlDelightTaskLocalDataSource(driver)
 
         try {
+            source.applyLabelCreate(
+                label = taskLabel(id = LABEL_ID, revision = 0),
+                operationId = "create-native-label",
+                enqueuedAt = TEST_INSTANT,
+            )
             source.applyCreate(
                 task = task(
                     title = "Native persistence",
@@ -47,6 +52,10 @@ class NativeSqlDelightTaskLocalDataSourceTest {
             assertEquals(
                 TaskMutationKind.CREATE,
                 source.nextProjectMutation(false)?.kind,
+            )
+            assertEquals(
+                TaskMutationKind.CREATE,
+                source.nextLabelMutation(false)?.kind,
             )
         } finally {
             source.close()

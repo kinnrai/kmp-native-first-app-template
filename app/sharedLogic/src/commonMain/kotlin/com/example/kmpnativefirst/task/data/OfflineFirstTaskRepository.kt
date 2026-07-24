@@ -1,6 +1,8 @@
 package com.example.kmpnativefirst.task.data
 
 import com.example.kmpnativefirst.task.Task
+import com.example.kmpnativefirst.task.TaskLabel
+import com.example.kmpnativefirst.task.TaskLabelValidator
 import com.example.kmpnativefirst.task.TaskProject
 import com.example.kmpnativefirst.task.TaskProjectValidator
 import com.example.kmpnativefirst.task.TaskValidator
@@ -25,6 +27,12 @@ internal class OfflineFirstTaskRepository(
         },
     private val projectRemote: TaskProjectRemoteDataSource =
         EmptyTaskProjectRemoteDataSource,
+    private val labelLocal: TaskLabelLocalDataSource =
+        requireNotNull(local as? TaskLabelLocalDataSource) {
+            "The task cache must also provide task label storage."
+        },
+    private val labelRemote: TaskLabelRemoteDataSource =
+        EmptyTaskLabelRemoteDataSource,
     private val clock: Clock = Clock.System,
     private val idGenerator: () -> String = { Uuid.random().toString() },
 ) : TaskRepository {
@@ -32,6 +40,8 @@ internal class OfflineFirstTaskRepository(
     override val conflicts = local.observeConflicts()
     override val projects = projectLocal.observeProjects()
     override val projectConflicts = projectLocal.observeProjectConflicts()
+    override val labels = labelLocal.observeLabels()
+    override val labelConflicts = labelLocal.observeLabelConflicts()
 
     private val syncMutex = Mutex()
     private val mutableSyncStatus = MutableStateFlow(TaskSyncStatus())
@@ -52,6 +62,7 @@ internal class OfflineFirstTaskRepository(
             dueAt = draft.dueAt,
         )
         ensureProjectAvailable(draft.projectId)
+        ensureLabelsAvailable(input.labelIds)
         val now = clock.now()
         val task = Task(
             id = idGenerator(),
@@ -91,6 +102,7 @@ internal class OfflineFirstTaskRepository(
             dueAt = edit.dueAt,
         )
         ensureProjectAvailable(edit.projectId)
+        ensureLabelsAvailable(input.labelIds)
         val updated = current.copy(
             title = input.title,
             notes = input.notes,
@@ -160,6 +172,7 @@ internal class OfflineFirstTaskRepository(
                 dueAt = resolution.edit.dueAt,
             )
             ensureProjectAvailable(resolution.edit.projectId)
+            ensureLabelsAvailable(input.labelIds)
             resolution.copy(
                 edit = resolution.edit.copy(
                     title = input.title,
@@ -253,10 +266,91 @@ internal class OfflineFirstTaskRepository(
         refreshStatus()
     }
 
+    override suspend fun createLabel(draft: TaskLabelDraft): TaskLabel {
+        val name = validateAndNormalizeLabel(draft.name)
+        val now = clock.now()
+        val label = TaskLabel(
+            id = idGenerator(),
+            name = name,
+            color = draft.color,
+            createdAt = now,
+            updatedAt = now,
+            revision = 0,
+        )
+        labelLocal.applyLabelCreate(
+            label = label,
+            operationId = idGenerator(),
+            enqueuedAt = now,
+        )
+        refreshStatus()
+        return label
+    }
+
+    override suspend fun updateLabel(
+        labelId: String,
+        edit: TaskLabelEdit,
+    ): TaskLabel {
+        val current = labelLocal.findLabel(labelId)?.label
+            ?: throw CachedTaskLabelNotFoundException(labelId)
+        val updated = current.copy(
+            name = validateAndNormalizeLabel(edit.name),
+            color = edit.color,
+            updatedAt = clock.now(),
+        )
+        labelLocal.applyLabelUpdate(
+            label = updated,
+            operationId = idGenerator(),
+            enqueuedAt = updated.updatedAt,
+        )
+        refreshStatus()
+        return updated
+    }
+
+    override suspend fun deleteLabel(labelId: String) {
+        val now = clock.now()
+        labelLocal.applyLabelDelete(
+            labelId = labelId,
+            operationId = idGenerator(),
+            taskOperationId = idGenerator,
+            enqueuedAt = now,
+        )
+        refreshStatus()
+    }
+
+    override suspend fun resolveLabelConflict(
+        labelId: String,
+        resolution: TaskLabelConflictResolution,
+    ) {
+        val normalizedResolution = if (resolution is TaskLabelConflictResolution.Merge) {
+            resolution.copy(
+                edit = resolution.edit.copy(
+                    name = validateAndNormalizeLabel(resolution.edit.name),
+                ),
+            )
+        } else {
+            resolution
+        }
+        labelLocal.resolveLabelConflict(
+            labelId = labelId,
+            resolution = normalizedResolution,
+            operationId = idGenerator(),
+            taskOperationId = idGenerator,
+            enqueuedAt = clock.now(),
+        )
+        refreshStatus()
+    }
+
     override suspend fun sync(): TaskSyncResult = syncMutex.withLock {
         var pushedCount = 0
         try {
             mutableSyncStatus.value = status(TaskSyncPhase.SYNCING)
+            while (true) {
+                val mutation = labelLocal.nextLabelMutation(
+                    deletionsOnly = false,
+                ) ?: break
+                pushedCount += synchronizeLabelUpsert(mutation)
+            }
+
             while (true) {
                 val mutation = projectLocal.nextProjectMutation(
                     deletionsOnly = false,
@@ -264,6 +358,11 @@ internal class OfflineFirstTaskRepository(
                 pushedCount += synchronizeProjectUpsert(mutation)
             }
 
+            labelLocal.replaceRemoteLabelSnapshot(
+                remoteLabels = labelRemote.listLabels(),
+                taskOperationId = idGenerator,
+                changedAt = clock.now(),
+            )
             projectLocal.replaceRemoteProjectSnapshot(
                 remoteProjects = projectRemote.listProjects(),
                 taskOperationId = idGenerator,
@@ -275,6 +374,15 @@ internal class OfflineFirstTaskRepository(
                 val referencedProject = mutation.desired?.projectId
                     ?.let { projectId -> projectLocal.findProject(projectId) }
                 if (referencedProject?.syncState == TaskSyncState.CONFLICT) {
+                    break
+                }
+                val referencesConflictingLabel = mutation.desired
+                    ?.labelIds
+                    .orEmpty()
+                    .any { labelId ->
+                        labelLocal.findLabel(labelId)?.syncState == TaskSyncState.CONFLICT
+                    }
+                if (referencesConflictingLabel) {
                     break
                 }
                 when (mutation.kind) {
@@ -432,6 +540,12 @@ internal class OfflineFirstTaskRepository(
 
             if (local.nextMutation() == null) {
                 while (true) {
+                    val mutation = labelLocal.nextLabelMutation(
+                        deletionsOnly = true,
+                    ) ?: break
+                    pushedCount += synchronizeLabelDelete(mutation)
+                }
+                while (true) {
                     val mutation = projectLocal.nextProjectMutation(
                         deletionsOnly = true,
                     ) ?: break
@@ -439,6 +553,12 @@ internal class OfflineFirstTaskRepository(
                 }
             }
 
+            val remoteLabels = labelRemote.listLabels()
+            labelLocal.replaceRemoteLabelSnapshot(
+                remoteLabels = remoteLabels,
+                taskOperationId = idGenerator,
+                changedAt = clock.now(),
+            )
             val remoteProjects = projectRemote.listProjects()
             projectLocal.replaceRemoteProjectSnapshot(
                 remoteProjects = remoteProjects,
@@ -447,10 +567,11 @@ internal class OfflineFirstTaskRepository(
             )
             val remoteTasks = remote.list()
             local.replaceRemoteSnapshot(remoteTasks)
-            val pulledCount = remoteProjects.size + remoteTasks.size
+            val pulledCount = remoteLabels.size + remoteProjects.size + remoteTasks.size
             val completedAt = clock.now()
             val conflictCount = local.conflictCount() +
-                projectLocal.projectConflictCount()
+                projectLocal.projectConflictCount() +
+                labelLocal.labelConflictCount()
             mutableSyncStatus.value = status(
                 phase = TaskSyncPhase.IDLE,
                 lastSyncedAt = completedAt,
@@ -475,14 +596,224 @@ internal class OfflineFirstTaskRepository(
 
     override fun close() {
         try {
-            projectRemote.close()
+            labelRemote.close()
         } finally {
             try {
-                remote.close()
+                projectRemote.close()
             } finally {
-                local.close()
+                try {
+                    remote.close()
+                } finally {
+                    local.close()
+                }
             }
         }
+    }
+
+    private suspend fun synchronizeLabelUpsert(
+        mutation: PendingTaskLabelMutation,
+    ): Int = when (mutation.kind) {
+        TaskMutationKind.CREATE -> {
+            val desired = requireNotNull(mutation.desired)
+            val created = try {
+                labelRemote.createLabel(desired)
+            } catch (_: RemoteTaskLabelConflictException) {
+                null
+            }
+            if (created != null) {
+                val reconciled = if (
+                    TaskLabelMerge.sameEditableContent(desired, created)
+                ) {
+                    labelLocal.acknowledgeLabelMutation(mutation, created)
+                } else {
+                    labelLocal.rebaseLabelMutation(
+                        mutation = mutation,
+                        remoteBase = created,
+                        mergedLabel = desired,
+                    ) || labelLocal.acknowledgeLabelMutation(mutation, created)
+                }
+                if (reconciled) {
+                    1
+                } else {
+                    labelRemote.deleteLabel(
+                        id = created.id,
+                        expectedRevision = created.revision,
+                    )
+                    2
+                }
+            } else {
+                val remoteLabel = labelRemote.findLabel(mutation.labelId)
+                    ?: throw RemoteTaskServerException(
+                        statusCode = 409,
+                        message = "The conflicting task label disappeared before it could be read.",
+                    )
+                if (TaskLabelMerge.sameEditableContent(desired, remoteLabel)) {
+                    if (
+                        labelLocal.acknowledgeLabelMutation(
+                            mutation,
+                            remoteLabel,
+                        )
+                    ) {
+                        1
+                    } else if (labelLocal.findLabel(mutation.labelId) == null) {
+                        labelRemote.deleteLabel(
+                            id = remoteLabel.id,
+                            expectedRevision = remoteLabel.revision,
+                        )
+                        1
+                    } else {
+                        0
+                    }
+                } else {
+                    val recorded = labelLocal.recordLabelConflict(
+                        mutation = mutation,
+                        conflict = TaskLabelConflict(
+                            labelId = mutation.labelId,
+                            mutationKind = mutation.kind,
+                            base = null,
+                            local = desired,
+                            remote = remoteLabel,
+                            conflictingFields = setOf(
+                                TaskLabelConflictField.CREATION,
+                            ),
+                            detectedAt = clock.now(),
+                        ),
+                    )
+                    if (
+                        !recorded &&
+                        labelLocal.findLabel(mutation.labelId) == null
+                    ) {
+                        labelRemote.deleteLabel(
+                            id = remoteLabel.id,
+                            expectedRevision = remoteLabel.revision,
+                        )
+                        1
+                    } else {
+                        0
+                    }
+                }
+            }
+        }
+        TaskMutationKind.UPDATE -> {
+            val base = requireNotNull(mutation.base)
+            val desired = requireNotNull(mutation.desired)
+            try {
+                val updated = labelRemote.replaceLabel(desired)
+                if (labelLocal.acknowledgeLabelMutation(mutation, updated)) {
+                    1
+                } else {
+                    0
+                }
+            } catch (_: RemoteTaskLabelConflictException) {
+                val remoteLabel = labelRemote.findLabel(mutation.labelId)
+                if (remoteLabel == null) {
+                    recordDeletedRemoteLabelConflict(mutation, base, desired)
+                } else {
+                    when (
+                        val merge = TaskLabelMerge.merge(
+                            base,
+                            desired,
+                            remoteLabel,
+                        )
+                    ) {
+                        is TaskLabelMergeResult.Merged -> {
+                            if (
+                                TaskLabelMerge.sameEditableContent(
+                                    merge.label,
+                                    remoteLabel,
+                                )
+                            ) {
+                                labelLocal.acknowledgeLabelMutation(
+                                    mutation,
+                                    remoteLabel,
+                                )
+                            } else {
+                                labelLocal.rebaseLabelMutation(
+                                    mutation = mutation,
+                                    remoteBase = remoteLabel,
+                                    mergedLabel = merge.label,
+                                )
+                            }
+                        }
+                        is TaskLabelMergeResult.Conflict ->
+                            labelLocal.recordLabelConflict(
+                                mutation = mutation,
+                                conflict = TaskLabelConflict(
+                                    labelId = mutation.labelId,
+                                    mutationKind = mutation.kind,
+                                    base = base,
+                                    local = desired,
+                                    remote = remoteLabel,
+                                    conflictingFields = merge.fields,
+                                    detectedAt = clock.now(),
+                                ),
+                            )
+                    }
+                }
+                0
+            } catch (_: RemoteTaskLabelNotFoundException) {
+                recordDeletedRemoteLabelConflict(mutation, base, desired)
+                0
+            }
+        }
+        TaskMutationKind.DELETE ->
+            error("Label deletions must be synchronized after task references.")
+    }
+
+    private suspend fun synchronizeLabelDelete(
+        mutation: PendingTaskLabelMutation,
+    ): Int {
+        check(mutation.kind == TaskMutationKind.DELETE)
+        val base = requireNotNull(mutation.base)
+        return try {
+            labelRemote.deleteLabel(
+                id = mutation.labelId,
+                expectedRevision = base.revision,
+            )
+            if (labelLocal.acknowledgeLabelDelete(mutation)) 1 else 0
+        } catch (_: RemoteTaskLabelNotFoundException) {
+            if (labelLocal.acknowledgeLabelDelete(mutation)) 1 else 0
+        } catch (_: RemoteTaskLabelConflictException) {
+            val remoteLabel = labelRemote.findLabel(mutation.labelId)
+            if (remoteLabel == null) {
+                if (labelLocal.acknowledgeLabelDelete(mutation)) 1 else 0
+            } else {
+                labelLocal.recordLabelConflict(
+                    mutation = mutation,
+                    conflict = TaskLabelConflict(
+                        labelId = mutation.labelId,
+                        mutationKind = mutation.kind,
+                        base = base,
+                        local = null,
+                        remote = remoteLabel,
+                        conflictingFields = setOf(
+                            TaskLabelConflictField.DELETION,
+                        ),
+                        detectedAt = clock.now(),
+                    ),
+                )
+                0
+            }
+        }
+    }
+
+    private suspend fun recordDeletedRemoteLabelConflict(
+        mutation: PendingTaskLabelMutation,
+        base: TaskLabel,
+        desired: TaskLabel,
+    ) {
+        labelLocal.recordLabelConflict(
+            mutation = mutation,
+            conflict = TaskLabelConflict(
+                labelId = mutation.labelId,
+                mutationKind = mutation.kind,
+                base = base,
+                local = desired,
+                remote = null,
+                conflictingFields = setOf(TaskLabelConflictField.DELETION),
+                detectedAt = clock.now(),
+            ),
+        )
     }
 
     private suspend fun synchronizeProjectUpsert(
@@ -725,9 +1056,12 @@ internal class OfflineFirstTaskRepository(
         failure: TaskSyncFailure? = null,
     ): TaskSyncStatus = TaskSyncStatus(
         phase = phase,
-        pendingCount = local.pendingCount() + projectLocal.pendingProjectCount(),
+        pendingCount = local.pendingCount() +
+            projectLocal.pendingProjectCount() +
+            labelLocal.pendingLabelCount(),
         conflictCount = local.conflictCount() +
-            projectLocal.projectConflictCount(),
+            projectLocal.projectConflictCount() +
+            labelLocal.labelConflictCount(),
         lastSyncedAt = lastSyncedAt,
         lastError = failure,
     )
@@ -737,10 +1071,14 @@ internal class OfflineFirstTaskRepository(
         return current.copy(
             phase = TaskSyncPhase.FAILED,
             pendingCount = localCountOrElse(current.pendingCount) {
-                local.pendingCount() + projectLocal.pendingProjectCount()
+                local.pendingCount() +
+                    projectLocal.pendingProjectCount() +
+                    labelLocal.pendingLabelCount()
             },
             conflictCount = localCountOrElse(current.conflictCount) {
-                local.conflictCount() + projectLocal.projectConflictCount()
+                local.conflictCount() +
+                    projectLocal.projectConflictCount() +
+                    labelLocal.labelConflictCount()
             },
             lastError = failure,
         )
@@ -784,12 +1122,28 @@ internal class OfflineFirstTaskRepository(
         }
     }
 
+    private suspend fun ensureLabelsAvailable(labelIds: List<String>) {
+        labelIds.firstOrNull { labelId ->
+            labelLocal.findLabel(labelId) == null
+        }?.let { labelId ->
+            throw CachedTaskLabelNotFoundException(labelId)
+        }
+    }
+
     private fun validateAndNormalizeProject(name: String): String {
         val issues = TaskProjectValidator.validate(name)
         if (issues.isNotEmpty()) {
             throw InvalidTaskProjectInputException(issues)
         }
         return TaskProjectValidator.normalizeName(name)
+    }
+
+    private fun validateAndNormalizeLabel(name: String): String {
+        val issues = TaskLabelValidator.validate(name)
+        if (issues.isNotEmpty()) {
+            throw InvalidTaskLabelInputException(issues)
+        }
+        return TaskLabelValidator.normalizeName(name)
     }
 
     private fun Throwable.toSyncFailure(): TaskSyncFailure = when (this) {
@@ -799,6 +1153,8 @@ internal class OfflineFirstTaskRepository(
         is RemoteTaskNotFoundException,
         is RemoteTaskProjectConflictException,
         is RemoteTaskProjectNotFoundException,
+        is RemoteTaskLabelConflictException,
+        is RemoteTaskLabelNotFoundException,
         -> TaskSyncFailure(
             kind = TaskSyncFailureKind.SERVER,
             message = message ?: "The task service rejected the synchronization request.",

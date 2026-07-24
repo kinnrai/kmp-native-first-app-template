@@ -1,0 +1,32 @@
+CREATE TABLE cachedTaskLabel (
+    id TEXT NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL,
+    color TEXT NOT NULL,
+    createdAtEpochMillis INTEGER NOT NULL,
+    updatedAtEpochMillis INTEGER NOT NULL,
+    revision INTEGER NOT NULL,
+    syncState TEXT NOT NULL,
+    isDeleted INTEGER AS Boolean NOT NULL
+);
+
+CREATE TABLE taskLabelOutbox (
+    operationId TEXT NOT NULL PRIMARY KEY,
+    labelId TEXT NOT NULL UNIQUE,
+    kind TEXT NOT NULL,
+    baseJson TEXT,
+    desiredJson TEXT,
+    enqueuedAtEpochMillis INTEGER NOT NULL
+);
+
+CREATE INDEX taskLabelOutbox_enqueuedAt
+ON taskLabelOutbox(enqueuedAtEpochMillis);
+
+CREATE TABLE taskLabelConflict (
+    labelId TEXT NOT NULL PRIMARY KEY,
+    kind TEXT NOT NULL,
+    baseJson TEXT,
+    localJson TEXT,
+    remoteJson TEXT,
+    fields TEXT NOT NULL,
+    detectedAtEpochMillis INTEGER NOT NULL
+);

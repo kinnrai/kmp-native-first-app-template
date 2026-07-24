@@ -2,13 +2,18 @@ package com.example.kmpnativefirst.task.data
 
 import app.cash.sqldelight.db.SqlDriver
 import com.example.kmpnativefirst.task.Task
+import com.example.kmpnativefirst.task.TaskLabel
+import com.example.kmpnativefirst.task.TaskLabelColor
 import com.example.kmpnativefirst.task.TaskPriority
 import com.example.kmpnativefirst.task.TaskProject
 import com.example.kmpnativefirst.task.TaskProjectColor
 import com.example.kmpnativefirst.task.data.local.CachedTask
+import com.example.kmpnativefirst.task.data.local.CachedTaskLabel
 import com.example.kmpnativefirst.task.data.local.CachedTaskProject
 import com.example.kmpnativefirst.task.data.local.TaskConflict as DatabaseTaskConflict
 import com.example.kmpnativefirst.task.data.local.TaskOutbox
+import com.example.kmpnativefirst.task.data.local.TaskLabelConflict as DatabaseTaskLabelConflict
+import com.example.kmpnativefirst.task.data.local.TaskLabelOutbox
 import com.example.kmpnativefirst.task.data.local.TaskProjectConflict as DatabaseTaskProjectConflict
 import com.example.kmpnativefirst.task.data.local.TaskProjectOutbox
 import com.example.kmpnativefirst.task.data.local.db.TaskDatabase
@@ -37,6 +42,8 @@ internal suspend fun createPersistentTaskRepository(
         remote = KtorTaskRemoteDataSource(baseUrl),
         projectLocal = local,
         projectRemote = KtorTaskProjectRemoteDataSource(baseUrl),
+        labelLocal = local,
+        labelRemote = KtorTaskLabelRemoteDataSource(baseUrl),
     ).initialize()
 } catch (error: Throwable) {
     driver.close()
@@ -46,7 +53,7 @@ internal suspend fun createPersistentTaskRepository(
 internal class SqlDelightTaskLocalDataSource(
     private val driver: SqlDriver,
     private val dispatcher: CoroutineDispatcher = taskDatabaseDispatcher(),
-) : TaskLocalDataSource, TaskProjectLocalDataSource {
+) : TaskLocalDataSource, TaskProjectLocalDataSource, TaskLabelLocalDataSource {
     private val database = createTaskDatabase(driver)
     private val queries = database.taskCacheQueries
     private val mutex = Mutex()
@@ -54,6 +61,8 @@ internal class SqlDelightTaskLocalDataSource(
     private val conflictFlow = MutableStateFlow(loadConflicts())
     private val projectFlow = MutableStateFlow(loadVisibleProjects())
     private val projectConflictFlow = MutableStateFlow(loadProjectConflicts())
+    private val labelFlow = MutableStateFlow(loadVisibleLabels())
+    private val labelConflictFlow = MutableStateFlow(loadLabelConflicts())
 
     override fun observeTasks(): Flow<List<TaskItem>> = taskFlow.asStateFlow()
 
@@ -63,6 +72,11 @@ internal class SqlDelightTaskLocalDataSource(
 
     override fun observeProjectConflicts(): Flow<List<TaskProjectConflict>> =
         projectConflictFlow.asStateFlow()
+
+    override fun observeLabels(): Flow<List<TaskLabelItem>> = labelFlow.asStateFlow()
+
+    override fun observeLabelConflicts(): Flow<List<TaskLabelConflict>> =
+        labelConflictFlow.asStateFlow()
 
     override suspend fun findTask(id: String): TaskItem? = read {
         queries.selectTaskById(id)
@@ -92,6 +106,21 @@ internal class SqlDelightTaskLocalDataSource(
 
     override suspend fun projectConflictCount(): Int = read {
         queries.countProjectConflicts().executeAsOne().toInt()
+    }
+
+    override suspend fun findLabel(id: String): TaskLabelItem? = read {
+        queries.selectLabelById(id)
+            .executeAsOneOrNull()
+            ?.takeUnless(CachedTaskLabel::isDeleted)
+            ?.toLabelItem()
+    }
+
+    override suspend fun pendingLabelCount(): Int = read {
+        queries.countLabelOutbox().executeAsOne().toInt()
+    }
+
+    override suspend fun labelConflictCount(): Int = read {
+        queries.countLabelConflicts().executeAsOne().toInt()
     }
 
     override suspend fun applyCreate(
@@ -600,6 +629,280 @@ internal class SqlDelightTaskLocalDataSource(
         queries.deleteProjectConflictByProjectId(projectId)
     }
 
+    override suspend fun applyLabelCreate(
+        label: TaskLabel,
+        operationId: String,
+        enqueuedAt: Instant,
+    ) = mutate {
+        if (queries.selectLabelById(label.id).executeAsOneOrNull() != null) {
+            throw DuplicateCachedTaskLabelException(label.id)
+        }
+        upsertLabel(label, TaskSyncState.PENDING, isDeleted = false)
+        upsertLabelMutation(
+            PendingTaskLabelMutation(
+                operationId = operationId,
+                labelId = label.id,
+                kind = TaskMutationKind.CREATE,
+                base = null,
+                desired = label,
+                enqueuedAt = enqueuedAt,
+            ),
+        )
+    }
+
+    override suspend fun applyLabelUpdate(
+        label: TaskLabel,
+        operationId: String,
+        enqueuedAt: Instant,
+    ) = mutate {
+        applyLabelUpdateLocked(label, operationId, enqueuedAt)
+    }
+
+    override suspend fun applyLabelDelete(
+        labelId: String,
+        operationId: String,
+        taskOperationId: () -> String,
+        enqueuedAt: Instant,
+    ) = mutate {
+        val current = queries.selectLabelById(labelId)
+            .executeAsOneOrNull()
+            ?.takeUnless(CachedTaskLabel::isDeleted)
+            ?: throw CachedTaskLabelNotFoundException(labelId)
+        if (current.syncState == TaskSyncState.CONFLICT.name) {
+            throw UnresolvedTaskLabelConflictException(labelId)
+        }
+        queries.selectConflicts()
+            .executeAsList()
+            .map(DatabaseTaskConflict::toDomainConflict)
+            .firstOrNull { conflict -> conflict.referencesLabel(labelId) }
+            ?.let { conflict -> throw UnresolvedTaskConflictException(conflict.taskId) }
+        clearLabelReferences(
+            labelIds = setOf(labelId),
+            taskOperationId = taskOperationId,
+            changedAt = enqueuedAt,
+            enqueueSyncedTasks = true,
+        )
+        val currentMutation = mutationForLabel(labelId)
+        if (currentMutation?.kind == TaskMutationKind.CREATE) {
+            queries.deleteLabelById(labelId)
+            queries.deleteLabelOutboxByLabelId(labelId)
+            queries.deleteLabelConflictByLabelId(labelId)
+            return@mutate
+        }
+        upsertLabel(
+            label = current.toLabel(),
+            syncState = TaskSyncState.PENDING,
+            isDeleted = true,
+        )
+        upsertLabelMutation(
+            PendingTaskLabelMutation(
+                operationId = operationId,
+                labelId = labelId,
+                kind = TaskMutationKind.DELETE,
+                base = currentMutation?.base ?: current.toLabel(),
+                desired = null,
+                enqueuedAt = enqueuedAt,
+            ),
+        )
+    }
+
+    override suspend fun nextLabelMutation(
+        deletionsOnly: Boolean,
+    ): PendingTaskLabelMutation? = read {
+        if (deletionsOnly) {
+            queries.selectNextLabelDeleteOutbox().executeAsOneOrNull()
+        } else {
+            queries.selectNextLabelUpsertOutbox().executeAsOneOrNull()
+        }?.toLabelMutation()
+    }
+
+    override suspend fun acknowledgeLabelMutation(
+        mutation: PendingTaskLabelMutation,
+        remoteLabel: TaskLabel,
+    ): Boolean = mutateWithResult {
+        val current = mutationForLabel(mutation.labelId)
+            ?: return@mutateWithResult false
+        if (current.operationId == mutation.operationId) {
+            queries.deleteLabelOutboxByLabelId(mutation.labelId)
+            queries.deleteLabelConflictByLabelId(mutation.labelId)
+            upsertLabel(remoteLabel, TaskSyncState.SYNCED, isDeleted = false)
+            return@mutateWithResult true
+        }
+
+        val rebasedDesired = current.desired?.copy(
+            createdAt = remoteLabel.createdAt,
+            revision = remoteLabel.revision,
+        )
+        upsertLabelMutation(
+            current.copy(
+                kind = if (current.kind == TaskMutationKind.DELETE) {
+                    TaskMutationKind.DELETE
+                } else {
+                    TaskMutationKind.UPDATE
+                },
+                base = remoteLabel,
+                desired = rebasedDesired,
+            ),
+        )
+        upsertLabel(
+            label = rebasedDesired ?: remoteLabel,
+            syncState = TaskSyncState.PENDING,
+            isDeleted = current.kind == TaskMutationKind.DELETE,
+        )
+        true
+    }
+
+    override suspend fun acknowledgeLabelDelete(
+        mutation: PendingTaskLabelMutation,
+    ): Boolean = mutateWithResult {
+        val current = mutationForLabel(mutation.labelId)
+            ?: return@mutateWithResult false
+        if (current.operationId != mutation.operationId) {
+            return@mutateWithResult false
+        }
+        queries.deleteLabelOutboxByLabelId(mutation.labelId)
+        queries.deleteLabelConflictByLabelId(mutation.labelId)
+        queries.deleteLabelById(mutation.labelId)
+        true
+    }
+
+    override suspend fun rebaseLabelMutation(
+        mutation: PendingTaskLabelMutation,
+        remoteBase: TaskLabel,
+        mergedLabel: TaskLabel,
+    ): Boolean = mutateWithResult {
+        val current = mutationForLabel(mutation.labelId)
+            ?: return@mutateWithResult false
+        if (current.operationId != mutation.operationId) {
+            return@mutateWithResult false
+        }
+        val desired = mergedLabel.copy(
+            createdAt = remoteBase.createdAt,
+            revision = remoteBase.revision,
+        )
+        upsertLabelMutation(
+            current.copy(
+                kind = TaskMutationKind.UPDATE,
+                base = remoteBase,
+                desired = desired,
+            ),
+        )
+        upsertLabel(desired, TaskSyncState.PENDING, isDeleted = false)
+        true
+    }
+
+    override suspend fun recordLabelConflict(
+        mutation: PendingTaskLabelMutation,
+        conflict: TaskLabelConflict,
+    ): Boolean = mutateWithResult {
+        val current = mutationForLabel(mutation.labelId)
+            ?: return@mutateWithResult false
+        if (current.operationId != mutation.operationId) {
+            return@mutateWithResult false
+        }
+        queries.deleteLabelOutboxByLabelId(mutation.labelId)
+        upsertLabelConflict(conflict)
+        val visibleLabel = conflict.local ?: conflict.remote
+        if (visibleLabel == null) {
+            queries.deleteLabelById(mutation.labelId)
+        } else {
+            upsertLabel(visibleLabel, TaskSyncState.CONFLICT, isDeleted = false)
+        }
+        true
+    }
+
+    override suspend fun replaceRemoteLabelSnapshot(
+        remoteLabels: List<TaskLabel>,
+        taskOperationId: () -> String,
+        changedAt: Instant,
+    ): Int = mutateWithResult {
+        val remoteById = remoteLabels.associateBy(TaskLabel::id)
+        val conflictReferencedIds = queries.selectConflicts()
+            .executeAsList()
+            .map(DatabaseTaskConflict::toDomainConflict)
+            .flatMapTo(mutableSetOf()) { conflict -> conflict.referencedLabelIds() }
+        val mutationProtectedIds = queries.selectAllLabelOutbox()
+            .executeAsList()
+            .mapTo(mutableSetOf(), TaskLabelOutbox::labelId)
+            .apply {
+                addAll(
+                    queries.selectLabelConflicts()
+                        .executeAsList()
+                        .map(DatabaseTaskLabelConflict::labelId),
+                )
+            }
+        val removalProtectedIds = mutationProtectedIds + conflictReferencedIds
+        val removableIds = queries.selectAllLabels()
+            .executeAsList()
+            .asSequence()
+            .filter { label -> label.syncState == TaskSyncState.SYNCED.name }
+            .map(CachedTaskLabel::id)
+            .filterNot(remoteById::containsKey)
+            .filterNot(removalProtectedIds::contains)
+            .toSet()
+        clearLabelReferences(
+            labelIds = removableIds,
+            taskOperationId = taskOperationId,
+            changedAt = changedAt,
+            enqueueSyncedTasks = false,
+        )
+        removableIds.forEach(queries::deleteLabelById)
+
+        remoteById.forEach { (id, label) ->
+            if (id !in mutationProtectedIds) {
+                upsertLabel(label, TaskSyncState.SYNCED, isDeleted = false)
+            }
+        }
+        remoteLabels.size
+    }
+
+    override suspend fun resolveLabelConflict(
+        labelId: String,
+        resolution: TaskLabelConflictResolution,
+        operationId: String,
+        taskOperationId: () -> String,
+        enqueuedAt: Instant,
+    ) = mutate {
+        val conflict = queries.selectLabelConflictByLabelId(labelId)
+            .executeAsOneOrNull()
+            ?.toDomainLabelConflict()
+            ?: throw CachedTaskLabelNotFoundException(labelId)
+        when (resolution) {
+            TaskLabelConflictResolution.UseRemote -> {
+                queries.deleteLabelOutboxByLabelId(labelId)
+                val remote = conflict.remote
+                if (remote == null) {
+                    clearLabelReferences(
+                        labelIds = setOf(labelId),
+                        taskOperationId = taskOperationId,
+                        changedAt = enqueuedAt,
+                        enqueueSyncedTasks = true,
+                    )
+                    queries.deleteLabelById(labelId)
+                } else {
+                    upsertLabel(remote, TaskSyncState.SYNCED, isDeleted = false)
+                }
+            }
+            TaskLabelConflictResolution.KeepLocal -> enqueueLabelResolution(
+                conflict = conflict,
+                desired = conflict.local,
+                operationId = operationId,
+                enqueuedAt = enqueuedAt,
+            )
+            is TaskLabelConflictResolution.Merge -> {
+                val source = conflict.local ?: conflict.remote
+                    ?: throw CachedTaskLabelNotFoundException(labelId)
+                enqueueLabelResolution(
+                    conflict = conflict,
+                    desired = source.withEdit(resolution.edit),
+                    operationId = operationId,
+                    enqueuedAt = enqueuedAt,
+                )
+            }
+        }
+        queries.deleteLabelConflictByLabelId(labelId)
+    }
+
     override fun close() {
         driver.close()
     }
@@ -722,6 +1025,65 @@ internal class SqlDelightTaskLocalDataSource(
         }
     }
 
+    private fun enqueueLabelResolution(
+        conflict: TaskLabelConflict,
+        desired: TaskLabel?,
+        operationId: String,
+        enqueuedAt: Instant,
+    ) {
+        val remote = conflict.remote
+        when {
+            remote == null && desired == null -> {
+                queries.deleteLabelById(conflict.labelId)
+                queries.deleteLabelOutboxByLabelId(conflict.labelId)
+            }
+            remote == null -> {
+                val create = requireNotNull(desired).copy(revision = 0)
+                upsertLabel(create, TaskSyncState.PENDING, isDeleted = false)
+                upsertLabelMutation(
+                    PendingTaskLabelMutation(
+                        operationId,
+                        conflict.labelId,
+                        TaskMutationKind.CREATE,
+                        base = null,
+                        desired = create,
+                        enqueuedAt,
+                    ),
+                )
+            }
+            desired == null -> {
+                upsertLabel(remote, TaskSyncState.PENDING, isDeleted = true)
+                upsertLabelMutation(
+                    PendingTaskLabelMutation(
+                        operationId,
+                        conflict.labelId,
+                        TaskMutationKind.DELETE,
+                        base = remote,
+                        desired = null,
+                        enqueuedAt,
+                    ),
+                )
+            }
+            else -> {
+                val update = desired.copy(
+                    createdAt = remote.createdAt,
+                    revision = remote.revision,
+                )
+                upsertLabel(update, TaskSyncState.PENDING, isDeleted = false)
+                upsertLabelMutation(
+                    PendingTaskLabelMutation(
+                        operationId,
+                        conflict.labelId,
+                        TaskMutationKind.UPDATE,
+                        base = remote,
+                        desired = update,
+                        enqueuedAt,
+                    ),
+                )
+            }
+        }
+    }
+
     private fun applyTaskUpdateLocked(
         task: Task,
         operationId: String,
@@ -799,6 +1161,45 @@ internal class SqlDelightTaskLocalDataSource(
         }
     }
 
+    private fun applyLabelUpdateLocked(
+        label: TaskLabel,
+        operationId: String,
+        enqueuedAt: Instant,
+    ) {
+        val current = queries.selectLabelById(label.id)
+            .executeAsOneOrNull()
+            ?.takeUnless(CachedTaskLabel::isDeleted)
+            ?: throw CachedTaskLabelNotFoundException(label.id)
+        if (current.syncState == TaskSyncState.CONFLICT.name) {
+            throw UnresolvedTaskLabelConflictException(label.id)
+        }
+        val currentMutation = mutationForLabel(label.id)
+        upsertLabel(label, TaskSyncState.PENDING, isDeleted = false)
+        when (currentMutation?.kind) {
+            TaskMutationKind.CREATE,
+            TaskMutationKind.UPDATE,
+            -> upsertLabelMutation(
+                currentMutation.copy(
+                    operationId = operationId,
+                    desired = label,
+                    enqueuedAt = enqueuedAt,
+                ),
+            )
+            TaskMutationKind.DELETE ->
+                throw InvalidCachedTaskLabelStateException(label.id)
+            null -> upsertLabelMutation(
+                PendingTaskLabelMutation(
+                    operationId = operationId,
+                    labelId = label.id,
+                    kind = TaskMutationKind.UPDATE,
+                    base = current.toLabel(),
+                    desired = label,
+                    enqueuedAt = enqueuedAt,
+                ),
+            )
+        }
+    }
+
     private fun clearProjectReferences(
         projectIds: Set<String>,
         taskOperationId: () -> String,
@@ -814,6 +1215,45 @@ internal class SqlDelightTaskLocalDataSource(
             .forEach { record ->
                 val updated = record.toTask().copy(
                     projectId = null,
+                    updatedAt = changedAt,
+                )
+                if (
+                    record.syncState == TaskSyncState.PENDING.name ||
+                    enqueueSyncedTasks
+                ) {
+                    applyTaskUpdateLocked(
+                        task = updated,
+                        operationId = taskOperationId(),
+                        enqueuedAt = changedAt,
+                    )
+                } else {
+                    upsertTask(
+                        task = updated,
+                        syncState = TaskSyncState.valueOf(record.syncState),
+                        isDeleted = false,
+                    )
+                }
+            }
+    }
+
+    private fun clearLabelReferences(
+        labelIds: Set<String>,
+        taskOperationId: () -> String,
+        changedAt: Instant,
+        enqueueSyncedTasks: Boolean,
+    ) {
+        if (labelIds.isEmpty()) return
+        queries.selectAllTasks()
+            .executeAsList()
+            .filter { task ->
+                !task.isDeleted &&
+                    taskJson.decodeFromString<List<String>>(task.labelIdsJson)
+                        .any(labelIds::contains)
+            }
+            .forEach { record ->
+                val task = record.toTask()
+                val updated = task.copy(
+                    labelIds = task.labelIds - labelIds,
                     updatedAt = changedAt,
                 )
                 if (
@@ -860,6 +1300,8 @@ internal class SqlDelightTaskLocalDataSource(
         conflictFlow.value = loadConflicts()
         projectFlow.value = loadVisibleProjects()
         projectConflictFlow.value = loadProjectConflicts()
+        labelFlow.value = loadVisibleLabels()
+        labelConflictFlow.value = loadLabelConflicts()
     }
 
     private fun loadVisibleTasks(): List<TaskItem> =
@@ -882,6 +1324,16 @@ internal class SqlDelightTaskLocalDataSource(
             .executeAsList()
             .map(DatabaseTaskProjectConflict::toDomainProjectConflict)
 
+    private fun loadVisibleLabels(): List<TaskLabelItem> =
+        queries.selectVisibleLabels()
+            .executeAsList()
+            .map(CachedTaskLabel::toLabelItem)
+
+    private fun loadLabelConflicts(): List<TaskLabelConflict> =
+        queries.selectLabelConflicts()
+            .executeAsList()
+            .map(DatabaseTaskLabelConflict::toDomainLabelConflict)
+
     private fun mutationForTask(taskId: String): PendingTaskMutation? =
         queries.selectOutboxByTaskId(taskId)
             .executeAsOneOrNull()
@@ -891,6 +1343,11 @@ internal class SqlDelightTaskLocalDataSource(
         queries.selectProjectOutboxByProjectId(projectId)
             .executeAsOneOrNull()
             ?.toProjectMutation()
+
+    private fun mutationForLabel(labelId: String): PendingTaskLabelMutation? =
+        queries.selectLabelOutboxByLabelId(labelId)
+            .executeAsOneOrNull()
+            ?.toLabelMutation()
 
     private fun upsertTask(
         task: Task,
@@ -985,6 +1442,51 @@ internal class SqlDelightTaskLocalDataSource(
         )
     }
 
+    private fun upsertLabel(
+        label: TaskLabel,
+        syncState: TaskSyncState,
+        isDeleted: Boolean,
+    ) {
+        queries.upsertLabel(
+            id = label.id,
+            name = label.name,
+            color = label.color.name,
+            createdAtEpochMillis = label.createdAt.toEpochMilliseconds(),
+            updatedAtEpochMillis = label.updatedAt.toEpochMilliseconds(),
+            revision = label.revision,
+            syncState = syncState.name,
+            isDeleted = isDeleted,
+        )
+    }
+
+    private fun upsertLabelMutation(mutation: PendingTaskLabelMutation) {
+        queries.upsertLabelOutbox(
+            operationId = mutation.operationId,
+            labelId = mutation.labelId,
+            kind = mutation.kind.name,
+            baseJson = mutation.base?.let(taskJson::encodeToString),
+            desiredJson = mutation.desired?.let(taskJson::encodeToString),
+            enqueuedAtEpochMillis = mutation.enqueuedAt.toEpochMilliseconds(),
+        )
+    }
+
+    private fun upsertLabelConflict(conflict: TaskLabelConflict) {
+        queries.upsertLabelConflict(
+            labelId = conflict.labelId,
+            kind = conflict.mutationKind.name,
+            baseJson = conflict.base?.let(taskJson::encodeToString),
+            localJson = conflict.local?.let(taskJson::encodeToString),
+            remoteJson = conflict.remote?.let(taskJson::encodeToString),
+            fields = conflict.conflictingFields
+                .sortedBy(TaskLabelConflictField::ordinal)
+                .joinToString(
+                    separator = ",",
+                    transform = TaskLabelConflictField::name,
+                ),
+            detectedAtEpochMillis = conflict.detectedAt.toEpochMilliseconds(),
+        )
+    }
+
     private fun <T> storageCall(block: () -> T): T = try {
         block()
     } catch (cancellation: CancellationException) {
@@ -1004,6 +1506,14 @@ internal class SqlDelightTaskLocalDataSource(
     } catch (error: DuplicateCachedTaskProjectException) {
         throw error
     } catch (error: InvalidCachedTaskProjectStateException) {
+        throw error
+    } catch (error: CachedTaskLabelNotFoundException) {
+        throw error
+    } catch (error: UnresolvedTaskLabelConflictException) {
+        throw error
+    } catch (error: DuplicateCachedTaskLabelException) {
+        throw error
+    } catch (error: InvalidCachedTaskLabelStateException) {
         throw error
     } catch (error: Throwable) {
         throw TaskLocalStorageException(
@@ -1093,6 +1603,44 @@ private fun DatabaseTaskProjectConflict.toDomainProjectConflict(): TaskProjectCo
         detectedAt = Instant.fromEpochMilliseconds(detectedAtEpochMillis),
     )
 
+private fun CachedTaskLabel.toLabel(): TaskLabel = TaskLabel(
+    id = id,
+    name = name,
+    color = TaskLabelColor.valueOf(color),
+    createdAt = Instant.fromEpochMilliseconds(createdAtEpochMillis),
+    updatedAt = Instant.fromEpochMilliseconds(updatedAtEpochMillis),
+    revision = revision,
+)
+
+private fun CachedTaskLabel.toLabelItem(): TaskLabelItem = TaskLabelItem(
+    label = toLabel(),
+    syncState = TaskSyncState.valueOf(syncState),
+)
+
+private fun TaskLabelOutbox.toLabelMutation(): PendingTaskLabelMutation =
+    PendingTaskLabelMutation(
+        operationId = operationId,
+        labelId = labelId,
+        kind = TaskMutationKind.valueOf(kind),
+        base = baseJson?.let(taskJson::decodeFromString),
+        desired = desiredJson?.let(taskJson::decodeFromString),
+        enqueuedAt = Instant.fromEpochMilliseconds(enqueuedAtEpochMillis),
+    )
+
+private fun DatabaseTaskLabelConflict.toDomainLabelConflict(): TaskLabelConflict =
+    TaskLabelConflict(
+        labelId = labelId,
+        mutationKind = TaskMutationKind.valueOf(kind),
+        base = baseJson?.let(taskJson::decodeFromString),
+        local = localJson?.let(taskJson::decodeFromString),
+        remote = remoteJson?.let(taskJson::decodeFromString),
+        conflictingFields = fields
+            .split(',')
+            .filter(String::isNotBlank)
+            .mapTo(linkedSetOf(), TaskLabelConflictField::valueOf),
+        detectedAt = Instant.fromEpochMilliseconds(detectedAtEpochMillis),
+    )
+
 private fun Task.withEdit(edit: TaskEdit): Task = copy(
     title = edit.title,
     notes = edit.notes,
@@ -1109,6 +1657,11 @@ private fun TaskProject.withEdit(edit: TaskProjectEdit): TaskProject = copy(
     color = edit.color,
 )
 
+private fun TaskLabel.withEdit(edit: TaskLabelEdit): TaskLabel = copy(
+    name = edit.name,
+    color = edit.color,
+)
+
 private fun TaskConflict.referencesProject(projectId: String): Boolean =
     projectId in referencedProjectIds()
 
@@ -1116,4 +1669,13 @@ private fun TaskConflict.referencedProjectIds(): Set<String> = buildSet {
     base?.projectId?.let(::add)
     local?.projectId?.let(::add)
     remote?.projectId?.let(::add)
+}
+
+private fun TaskConflict.referencesLabel(labelId: String): Boolean =
+    labelId in referencedLabelIds()
+
+private fun TaskConflict.referencedLabelIds(): Set<String> = buildSet {
+    base?.labelIds?.let(::addAll)
+    local?.labelIds?.let(::addAll)
+    remote?.labelIds?.let(::addAll)
 }
