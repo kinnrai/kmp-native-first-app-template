@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { TaskEditorDialog } from './TaskEditorDialog.tsx';
@@ -25,12 +25,16 @@ describe('TaskEditorDialog', () => {
       '  Coordinate launch  ',
     );
     await user.selectOptions(screen.getByLabelText('Priority'), 'high');
+    fireEvent.input(screen.getByLabelText('Due date'), {
+      target: { value: '2026-07-25' },
+    });
     await user.click(screen.getByRole('button', { name: 'Create task' }));
 
     expect(onSubmit).toHaveBeenCalledWith({
       title: 'Plan release',
       notes: 'Coordinate launch',
       priority: 'high',
+      dueDate: '2026-07-25',
       dueAt: undefined,
       isCompleted: false,
     });

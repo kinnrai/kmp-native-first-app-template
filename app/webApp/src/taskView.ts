@@ -1,54 +1,67 @@
 import type { WebTask, WebTaskItem } from 'shared-logic';
 
-export type TaskFilter = 'all' | 'active' | 'completed';
+export type TaskSmartView =
+  | 'all'
+  | 'inbox'
+  | 'today'
+  | 'upcoming'
+  | 'completed';
 
-export function filterTasks(
+export function searchTasks(
   items: readonly WebTaskItem[],
-  filter: TaskFilter,
   query: string,
 ): WebTaskItem[] {
   const normalizedQuery = query.trim().toLocaleLowerCase();
   return items.filter(({ task }) => {
-    const matchesFilter =
-      filter === 'all' ||
-      (filter === 'active' && !task.isCompleted) ||
-      (filter === 'completed' && task.isCompleted);
-    const matchesQuery =
+    return (
       normalizedQuery.length === 0 ||
       task.title.toLocaleLowerCase().includes(normalizedQuery) ||
-      task.notes?.toLocaleLowerCase().includes(normalizedQuery) === true;
-    return matchesFilter && matchesQuery;
+      task.notes?.toLocaleLowerCase().includes(normalizedQuery) === true
+    );
   });
 }
 
-export function toDateTimeLocal(instant: string | null | undefined): string {
+export function instantToLocalDate(
+  instant: string | null | undefined,
+): string {
   if (!instant) return '';
-  const date = new Date(instant);
-  const offset = date.getTimezoneOffset() * 60_000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+  return localDateString(new Date(instant));
 }
 
-export function fromDateTimeLocal(value: string): string | undefined {
-  return value ? new Date(value).toISOString() : undefined;
+export function localDateString(date: Date): string {
+  const year = date.getFullYear().toString().padStart(4, '0');
+  const month = (date.getMonth() + 1).toString().padStart(2, '0');
+  const day = date.getDate().toString().padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 export function formatDueDate(
-  instant: string | null | undefined,
+  dueDate: string | null | undefined,
+  dueAt: string | null | undefined,
   locale?: string,
 ): string | undefined {
-  if (!instant) return undefined;
+  if (dueDate) {
+    const [year, month, day] = dueDate.split('-').map(Number);
+    return new Intl.DateTimeFormat(locale, {
+      dateStyle: 'medium',
+    }).format(new Date(year, month - 1, day));
+  }
+  if (!dueAt) return undefined;
   return new Intl.DateTimeFormat(locale, {
     dateStyle: 'medium',
     timeStyle: 'short',
-  }).format(new Date(instant));
+  }).format(new Date(dueAt));
 }
 
 export function isOverdue(
   task: WebTask,
   now: number = Date.now(),
 ): boolean {
+  if (task.isCompleted) return false;
+  if (task.dueDate) {
+    return task.dueDate < localDateString(new Date(now));
+  }
   return (
-    !task.isCompleted &&
     task.dueAt != null &&
     new Date(task.dueAt).getTime() < now
   );

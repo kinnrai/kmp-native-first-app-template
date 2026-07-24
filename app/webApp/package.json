@@ -11,6 +11,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@js-joda/timezone": "2.23.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "shared-logic": "0.0.0-unspecified"

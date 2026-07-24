@@ -1,13 +1,17 @@
 package com.example.kmpnativefirst.task.data
 
 import com.example.kmpnativefirst.task.Task
+import com.example.kmpnativefirst.task.TaskPlanning
 import com.example.kmpnativefirst.task.TaskPriority
+import com.example.kmpnativefirst.task.TaskSmartView
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.TimeZone
 import kotlin.js.JsExport
 import kotlin.time.Instant
 
@@ -25,6 +29,7 @@ class WebTaskStore(
     private val scope: CoroutineScope = MainScope()
     private val listeners = mutableSetOf<(WebTaskSnapshot) -> Unit>()
     private var repository: TaskRepository? = null
+    private var latestTasks: List<TaskItem> = emptyList()
     private var currentSnapshot = loadingWebTaskSnapshot()
 
     init {
@@ -40,6 +45,7 @@ class WebTaskStore(
                     createdRepository.conflicts,
                     createdRepository.syncStatus,
                 ) { tasks, conflicts, syncStatus ->
+                    latestTasks = tasks
                     WebTaskSnapshot(
                         isReady = true,
                         tasks = tasks.map(TaskItem::toWebTaskItem).toTypedArray(),
@@ -78,6 +84,7 @@ class WebTaskStore(
         title: String,
         notes: String?,
         priority: String,
+        dueDate: String?,
         dueAt: String?,
     ) = runAction {
         create(
@@ -85,6 +92,7 @@ class WebTaskStore(
                 title = title,
                 notes = notes,
                 priority = priority.toTaskPriority(),
+                dueDate = dueDate.toLocalDateOrNull(),
                 dueAt = dueAt.toInstantOrNull(),
             ),
         )
@@ -95,6 +103,7 @@ class WebTaskStore(
         title: String,
         notes: String?,
         priority: String,
+        dueDate: String?,
         dueAt: String?,
         isCompleted: Boolean,
     ) = runAction {
@@ -104,6 +113,7 @@ class WebTaskStore(
                 title = title,
                 notes = notes,
                 priority = priority.toTaskPriority(),
+                dueDate = dueDate.toLocalDateOrNull(),
                 dueAt = dueAt.toInstantOrNull(),
                 isCompleted = isCompleted,
             ),
@@ -135,6 +145,7 @@ class WebTaskStore(
         title: String,
         notes: String?,
         priority: String,
+        dueDate: String?,
         dueAt: String?,
         isCompleted: Boolean,
     ) = runAction {
@@ -145,6 +156,7 @@ class WebTaskStore(
                     title = title,
                     notes = notes,
                     priority = priority.toTaskPriority(),
+                    dueDate = dueDate.toLocalDateOrNull(),
                     dueAt = dueAt.toInstantOrNull(),
                     isCompleted = isCompleted,
                 ),
@@ -154,6 +166,29 @@ class WebTaskStore(
 
     fun sync() = runAction {
         sync()
+    }
+
+    fun plannedTasks(
+        view: String,
+        today: String,
+        timeZoneId: String,
+    ): Array<WebTaskItem> {
+        val smartView = TaskSmartView.entries.firstOrNull {
+            it.name.equals(view, ignoreCase = true)
+        } ?: TaskSmartView.ALL
+        val itemsById = latestTasks.associateBy { it.task.id }
+        val timeZone = runCatching { TimeZone.of(timeZoneId) }
+            .getOrDefault(TimeZone.UTC)
+        return TaskPlanning.select(
+            tasks = latestTasks.map(TaskItem::task),
+            view = smartView,
+            today = LocalDate.parse(today),
+            timeZone = timeZone,
+        ).mapNotNull { task ->
+            itemsById[task.id]
+        }
+            .map(TaskItem::toWebTaskItem)
+            .toTypedArray()
     }
 
     fun clearActionError() {
@@ -237,6 +272,7 @@ class WebTask internal constructor(
     val title: String,
     val notes: String?,
     val priority: String,
+    val dueDate: String?,
     val dueAt: String?,
     val isCompleted: Boolean,
     val createdAt: String,
@@ -312,6 +348,7 @@ private fun Task.toWebTask(): WebTask = WebTask(
     title = title,
     notes = notes,
     priority = priority.name.lowercase(),
+    dueDate = dueDate?.toString(),
     dueAt = dueAt?.toString(),
     isCompleted = isCompleted,
     createdAt = createdAt.toString(),
@@ -329,6 +366,12 @@ private fun String?.toInstantOrNull(): Instant? =
         ?.trim()
         ?.takeIf(String::isNotEmpty)
         ?.let(Instant::parse)
+
+private fun String?.toLocalDateOrNull(): LocalDate? =
+    this
+        ?.trim()
+        ?.takeIf(String::isNotEmpty)
+        ?.let(LocalDate::parse)
 
 private fun Throwable.toActionMessage(): String = when (this) {
     is InvalidTaskInputException -> "Check the title and notes, then try again."

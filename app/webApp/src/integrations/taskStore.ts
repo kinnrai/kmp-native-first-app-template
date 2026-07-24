@@ -51,6 +51,7 @@ export const taskActions: TaskActions = {
   keepLocal: store.keepLocal.bind(store),
   useRemote: store.useRemote.bind(store),
   mergeConflict: store.mergeConflict.bind(store),
+  plannedTasks: store.plannedTasks.bind(store),
   sync: store.sync.bind(store),
   clearActionError: store.clearActionError.bind(store),
 };

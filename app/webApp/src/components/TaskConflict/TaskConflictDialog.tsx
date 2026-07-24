@@ -21,6 +21,7 @@ const fieldNames: Record<string, string> = {
   title: 'title',
   notes: 'notes',
   priority: 'priority',
+  due_date: 'due date',
   due_at: 'due date',
   completion: 'completion',
 };
@@ -46,6 +47,7 @@ export function TaskConflictDialog({
         values.title,
         values.notes,
         values.priority,
+        values.dueDate,
         values.dueAt,
         values.isCompleted,
       );
@@ -186,7 +188,9 @@ function TaskVersionCard({
             </div>
             <div>
               <dt>Due</dt>
-              <dd>{formatDueDate(task.dueAt) ?? 'No due date'}</dd>
+              <dd>
+                {formatDueDate(task.dueDate, task.dueAt) ?? 'No due date'}
+              </dd>
             </div>
             <div>
               <dt>Status</dt>

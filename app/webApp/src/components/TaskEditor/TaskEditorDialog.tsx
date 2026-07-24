@@ -2,15 +2,13 @@ import { useId, useState } from 'react';
 import type { FormEvent, KeyboardEvent, MouseEvent } from 'react';
 import type { WebTask } from 'shared-logic';
 import { CloseIcon } from '../Icons.tsx';
-import {
-  fromDateTimeLocal,
-  toDateTimeLocal,
-} from '../../taskView.ts';
+import { instantToLocalDate } from '../../taskView.ts';
 
 export interface TaskEditorValues {
   title: string;
   notes?: string;
   priority: string;
+  dueDate?: string;
   dueAt?: string;
   isCompleted: boolean;
 }
@@ -35,7 +33,12 @@ export function TaskEditorDialog({
   const [title, setTitle] = useState(initialTask?.title ?? '');
   const [notes, setNotes] = useState(initialTask?.notes ?? '');
   const [priority, setPriority] = useState(initialTask?.priority ?? 'none');
-  const [dueAt, setDueAt] = useState(toDateTimeLocal(initialTask?.dueAt));
+  const [dueDate, setDueDate] = useState(
+    initialTask?.dueDate ?? instantToLocalDate(initialTask?.dueAt),
+  );
+  const [preciseDueAt, setPreciseDueAt] = useState(
+    initialTask?.dueDate ? undefined : initialTask?.dueAt ?? undefined,
+  );
   const [isCompleted, setIsCompleted] = useState(
     initialTask?.isCompleted ?? false,
   );
@@ -48,7 +51,8 @@ export function TaskEditorDialog({
       title: normalizedTitle,
       notes: notes.trim() || undefined,
       priority,
-      dueAt: fromDateTimeLocal(dueAt),
+      dueDate: preciseDueAt ? undefined : dueDate || undefined,
+      dueAt: preciseDueAt,
       isCompleted,
     });
   };
@@ -135,9 +139,12 @@ export function TaskEditorDialog({
             <label className="field">
               <span>Due date</span>
               <input
-                onChange={(event) => setDueAt(event.target.value)}
-                type="datetime-local"
-                value={dueAt}
+                onInput={(event) => {
+                  setDueDate(event.currentTarget.value);
+                  setPreciseDueAt(undefined);
+                }}
+                type="date"
+                value={dueDate}
               />
             </label>
           </div>
