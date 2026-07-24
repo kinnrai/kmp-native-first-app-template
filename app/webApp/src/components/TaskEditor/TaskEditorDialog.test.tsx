@@ -37,6 +37,7 @@ describe('TaskEditorDialog', () => {
       dueDate: '2026-07-25',
       dueAt: undefined,
       isCompleted: false,
+      projectId: undefined,
     });
   });
 });

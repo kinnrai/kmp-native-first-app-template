@@ -1,6 +1,6 @@
 import { useId, useState } from 'react';
 import type { FormEvent, KeyboardEvent, MouseEvent } from 'react';
-import type { WebTask } from 'shared-logic';
+import type { WebTask, WebTaskProjectItem } from 'shared-logic';
 import { CloseIcon } from '../Icons.tsx';
 import { instantToLocalDate } from '../../taskView.ts';
 
@@ -11,11 +11,14 @@ export interface TaskEditorValues {
   dueDate?: string;
   dueAt?: string;
   isCompleted: boolean;
+  projectId?: string;
 }
 
 interface TaskEditorDialogProps {
   heading: string;
+  initialProjectId?: string;
   initialTask?: WebTask;
+  projects?: readonly WebTaskProjectItem[];
   submitLabel: string;
   onCancel(): void;
   onSubmit(values: TaskEditorValues): void;
@@ -23,7 +26,9 @@ interface TaskEditorDialogProps {
 
 export function TaskEditorDialog({
   heading,
+  initialProjectId,
   initialTask,
+  projects = [],
   submitLabel,
   onCancel,
   onSubmit,
@@ -42,6 +47,9 @@ export function TaskEditorDialog({
   const [isCompleted, setIsCompleted] = useState(
     initialTask?.isCompleted ?? false,
   );
+  const [projectId, setProjectId] = useState(
+    initialTask?.projectId ?? initialProjectId ?? '',
+  );
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -54,6 +62,7 @@ export function TaskEditorDialog({
       dueDate: preciseDueAt ? undefined : dueDate || undefined,
       dueAt: preciseDueAt,
       isCompleted,
+      projectId: projectId || undefined,
     });
   };
 
@@ -124,6 +133,22 @@ export function TaskEditorDialog({
 
           <div className="field-grid">
             <label className="field">
+              <span>Project</span>
+              <select
+                onChange={(event) => setProjectId(event.target.value)}
+                value={projectId}
+              >
+                <option value="">Inbox (no project)</option>
+                {projects.map(({ project, syncState }) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                    {syncState === 'conflict' ? ' (needs attention)' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="field">
               <span>Priority</span>
               <select
                 onChange={(event) => setPriority(event.target.value)}
@@ -136,7 +161,7 @@ export function TaskEditorDialog({
               </select>
             </label>
 
-            <label className="field">
+            <label className="field field-wide">
               <span>Due date</span>
               <input
                 onInput={(event) => {
