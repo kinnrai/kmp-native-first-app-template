@@ -71,6 +71,7 @@ class ApplicationTest {
                     title = "  Plan release  ",
                     notes = "Prepare notes",
                     priority = TaskPriority.HIGH,
+                    reminderAt = Instant.parse("2026-08-01T08:30:00Z"),
                 ),
             )
         }
@@ -78,6 +79,7 @@ class ApplicationTest {
         assertEquals("${TaskApi.BASE_PATH}/$TASK_ID", createdResponse.headers[HttpHeaders.Location])
         val created = createdResponse.decode<Task>()
         assertEquals("Plan release", created.title)
+        assertEquals(Instant.parse("2026-08-01T08:30:00Z"), created.reminderAt)
 
         val fetched = client.get("${TaskApi.BASE_PATH}/${created.id}").decode<Task>()
         assertEquals(created, fetched)
@@ -88,6 +90,7 @@ class ApplicationTest {
                     title = created.title,
                     notes = created.notes,
                     priority = created.priority,
+                    reminderAt = Instant.parse("2026-08-01T08:45:00Z"),
                     isCompleted = true,
                     expectedRevision = created.revision,
                 ),
@@ -96,6 +99,7 @@ class ApplicationTest {
         assertEquals(HttpStatusCode.OK, updatedResponse.status)
         val updated = updatedResponse.decode<Task>()
         assertTrue(updated.isCompleted)
+        assertEquals(Instant.parse("2026-08-01T08:45:00Z"), updated.reminderAt)
         assertEquals(2, updated.revision)
 
         val completed = client.get("${TaskApi.BASE_PATH}?filter=completed&query=release")

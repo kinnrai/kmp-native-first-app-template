@@ -122,6 +122,7 @@ class TaskContractTest {
             labelIds = listOf("33333333-3333-4333-8333-333333333333"),
             priority = TaskPriority.HIGH,
             dueDate = LocalDate(2026, 8, 1),
+            reminderAt = Instant.parse("2026-08-01T08:30:00Z"),
             createdAt = Instant.parse("2026-07-23T10:00:00Z"),
             updatedAt = Instant.parse("2026-07-23T10:00:00Z"),
             revision = 1,
@@ -135,5 +136,6 @@ class TaskContractTest {
         assertEquals(true, encoded.contains("\"labelIds\""))
         assertEquals(true, encoded.contains("\"priority\":\"high\""))
         assertEquals(true, encoded.contains("\"dueDate\":\"2026-08-01\""))
+        assertEquals(true, encoded.contains("\"reminderAt\":\"2026-08-01T08:30:00Z\""))
     }
 }

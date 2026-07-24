@@ -133,6 +133,32 @@ class TaskServiceTest {
     }
 
     @Test
+    fun preservesReminderTimesAcrossCreateAndReplace() = runBlocking {
+        val service = taskService()
+        val initialReminder = Instant.parse("2026-08-01T08:30:00Z")
+        val updatedReminder = Instant.parse("2026-08-01T08:45:00Z")
+
+        val created = service.create(
+            CreateTaskRequest(
+                id = TASK_ID,
+                title = "Plan release",
+                reminderAt = initialReminder,
+            ),
+        )
+        assertEquals(initialReminder, created.reminderAt)
+
+        val updated = service.replace(
+            id = created.id,
+            request = ReplaceTaskRequest(
+                title = created.title,
+                reminderAt = updatedReminder,
+                expectedRevision = created.revision,
+            ),
+        )
+        assertEquals(updatedReminder, updated.reminderAt)
+    }
+
+    @Test
     fun assignsTasksOnlyToExistingProjects() = runBlocking {
         val repository = InMemoryTaskRepository()
         val projectService = TaskProjectService(repository, clock)

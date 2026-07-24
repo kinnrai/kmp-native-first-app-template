@@ -15,6 +15,7 @@ data class Task(
     val priority: TaskPriority = TaskPriority.NONE,
     val dueDate: LocalDate? = null,
     val dueAt: Instant? = null,
+    val reminderAt: Instant? = null,
     val isCompleted: Boolean = false,
     val createdAt: Instant,
     val updatedAt: Instant,
