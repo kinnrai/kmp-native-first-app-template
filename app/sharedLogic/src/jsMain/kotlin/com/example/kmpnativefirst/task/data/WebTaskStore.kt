@@ -86,11 +86,13 @@ class WebTaskStore(
         priority: String,
         dueDate: String?,
         dueAt: String?,
+        projectId: String?,
     ) = runAction {
         create(
             TaskDraft(
                 title = title,
                 notes = notes,
+                projectId = projectId,
                 priority = priority.toTaskPriority(),
                 dueDate = dueDate.toLocalDateOrNull(),
                 dueAt = dueAt.toInstantOrNull(),
@@ -106,12 +108,14 @@ class WebTaskStore(
         dueDate: String?,
         dueAt: String?,
         isCompleted: Boolean,
+        projectId: String?,
     ) = runAction {
         update(
             taskId = taskId,
             edit = TaskEdit(
                 title = title,
                 notes = notes,
+                projectId = projectId,
                 priority = priority.toTaskPriority(),
                 dueDate = dueDate.toLocalDateOrNull(),
                 dueAt = dueAt.toInstantOrNull(),
@@ -148,6 +152,7 @@ class WebTaskStore(
         dueDate: String?,
         dueAt: String?,
         isCompleted: Boolean,
+        projectId: String?,
     ) = runAction {
         resolveConflict(
             taskId = taskId,
@@ -155,6 +160,7 @@ class WebTaskStore(
                 TaskEdit(
                     title = title,
                     notes = notes,
+                    projectId = projectId,
                     priority = priority.toTaskPriority(),
                     dueDate = dueDate.toLocalDateOrNull(),
                     dueAt = dueAt.toInstantOrNull(),
@@ -271,6 +277,7 @@ class WebTask internal constructor(
     val id: String,
     val title: String,
     val notes: String?,
+    val projectId: String?,
     val priority: String,
     val dueDate: String?,
     val dueAt: String?,
@@ -347,6 +354,7 @@ private fun Task.toWebTask(): WebTask = WebTask(
     id = id,
     title = title,
     notes = notes,
+    projectId = projectId,
     priority = priority.name.lowercase(),
     dueDate = dueDate?.toString(),
     dueAt = dueAt?.toString(),

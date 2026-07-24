@@ -104,7 +104,8 @@ final class TaskStore {
         notes: draft.normalizedNotes,
         priority: draft.priority.kotlinValue,
         dueDate: draft.dueDate,
-        dueAt: draft.dueAt
+        dueAt: draft.dueAt,
+        projectId: draft.projectID
       )
     }
   }
@@ -122,7 +123,8 @@ final class TaskStore {
         priority: draft.priority.kotlinValue,
         dueDate: draft.dueDate,
         dueAt: draft.dueAt,
-        isCompleted: draft.isCompleted
+        isCompleted: draft.isCompleted,
+        projectId: draft.projectID
       )
     }
   }
@@ -175,7 +177,8 @@ final class TaskStore {
         priority: draft.priority.kotlinValue,
         dueDate: draft.dueDate,
         dueAt: draft.dueAt,
-        isCompleted: draft.isCompleted
+        isCompleted: draft.isCompleted,
+        projectId: draft.projectID
       )
     }
   }

@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import type { WebTaskSnapshot } from 'shared-logic';
+import type { WebTask, WebTaskItem, WebTaskSnapshot } from 'shared-logic';
 import type { TaskActions } from '../../taskActions.ts';
 import { TaskApp } from './TaskApp.tsx';
 
@@ -61,6 +61,56 @@ describe('TaskApp', () => {
       'none',
       undefined,
       undefined,
+      null,
+    );
+  });
+
+  it('preserves a task project while editing fields', async () => {
+    const user = userEvent.setup();
+    const taskActions = actions();
+    const task = {
+      id: 'task-1',
+      title: 'Project task',
+      notes: undefined,
+      projectId: '22222222-2222-4222-8222-222222222222',
+      priority: 'none',
+      dueDate: undefined,
+      dueAt: undefined,
+      isCompleted: false,
+      createdAt: '2026-07-24T08:00:00Z',
+      updatedAt: '2026-07-24T08:00:00Z',
+      revision: '1',
+    } as unknown as WebTask;
+    const item = {
+      task,
+      syncState: 'synced',
+    } as unknown as WebTaskItem;
+    taskActions.plannedTasks = vi.fn(() => [item]);
+    const snapshot = {
+      ...readySnapshot,
+      tasks: [item],
+    } as unknown as WebTaskSnapshot;
+
+    render(
+      <TaskApp
+        actions={taskActions}
+        isOnline
+        snapshot={snapshot}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Project task' }));
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    expect(taskActions.update).toHaveBeenCalledWith(
+      task.id,
+      task.title,
+      undefined,
+      task.priority,
+      undefined,
+      undefined,
+      false,
+      task.projectId,
     );
   });
 });

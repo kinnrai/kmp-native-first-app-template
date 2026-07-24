@@ -51,4 +51,23 @@ class TaskMergeTest {
         assertEquals(LocalDate(2026, 8, 1), result.task.dueDate)
         assertEquals(TaskPriority.HIGH, result.task.priority)
     }
+
+    @Test
+    fun reportsConflictingProjectMoves() {
+        val base = task(projectId = PROJECT_ID_1)
+        val local = base.copy(projectId = PROJECT_ID_2)
+        val remote = base.copy(projectId = PROJECT_ID_3, revision = 2)
+
+        val result = assertIs<TaskMergeResult.Conflict>(
+            TaskMerge.merge(base, local, remote),
+        )
+
+        assertEquals(setOf(TaskConflictField.PROJECT), result.fields)
+    }
+
+    private companion object {
+        const val PROJECT_ID_1 = "10000000-0000-4000-8000-000000000001"
+        const val PROJECT_ID_2 = "10000000-0000-4000-8000-000000000002"
+        const val PROJECT_ID_3 = "10000000-0000-4000-8000-000000000003"
+    }
 }

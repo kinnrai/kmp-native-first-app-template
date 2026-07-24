@@ -29,6 +29,13 @@ internal object TaskMerge {
             remote = remote.notes,
             conflicts = conflicts,
         )
+        val projectId = mergeValue(
+            field = TaskConflictField.PROJECT,
+            base = base.projectId,
+            local = local.projectId,
+            remote = remote.projectId,
+            conflicts = conflicts,
+        )
         val priority = mergeValue(
             field = TaskConflictField.PRIORITY,
             base = base.priority,
@@ -63,6 +70,7 @@ internal object TaskMerge {
                 remote.copy(
                     title = title,
                     notes = notes,
+                    projectId = projectId,
                     priority = priority,
                     dueDate = dueDate,
                     dueAt = dueAt,
@@ -81,6 +89,7 @@ internal object TaskMerge {
     ): Boolean =
         first.title == second.title &&
             first.notes == second.notes &&
+            first.projectId == second.projectId &&
             first.priority == second.priority &&
             first.dueDate == second.dueDate &&
             first.dueAt == second.dueAt &&

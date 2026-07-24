@@ -1,5 +1,7 @@
 package com.example.kmpnativefirst.task
 
+import kotlin.time.Instant
+
 interface TaskProjectRepository {
     suspend fun listProjects(): List<TaskProject>
 
@@ -15,6 +17,7 @@ interface TaskProjectRepository {
     suspend fun deleteProject(
         id: String,
         expectedRevision: Long,
+        reassignedTasksUpdatedAt: Instant,
     ): TaskProjectDeleteResult
 }
 
@@ -33,7 +36,9 @@ sealed interface TaskProjectMutationResult {
 }
 
 sealed interface TaskProjectDeleteResult {
-    data object Deleted : TaskProjectDeleteResult
+    data class Deleted(
+        val reassignedTaskCount: Int,
+    ) : TaskProjectDeleteResult
 
     data object NotFound : TaskProjectDeleteResult
 

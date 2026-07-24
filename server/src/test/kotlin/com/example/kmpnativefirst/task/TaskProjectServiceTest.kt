@@ -71,7 +71,33 @@ class TaskProjectServiceTest {
         }
     }
 
+    @Test
+    fun deletingProjectMovesItsTasksToInbox() = runTest {
+        val repository = InMemoryTaskRepository()
+        val service = TaskProjectService(repository, clock)
+        val project = service.create(
+            CreateTaskProjectRequest(id = PROJECT_ID, name = "Personal"),
+        )
+        val task = Task(
+            id = TASK_ID,
+            title = "Plan release",
+            projectId = project.id,
+            createdAt = clock.now(),
+            updatedAt = clock.now(),
+            revision = 1,
+        )
+        repository.insert(task)
+
+        service.delete(project.id, expectedRevision = project.revision)
+
+        val reassigned = requireNotNull(repository.find(task.id))
+        assertEquals(null, reassigned.projectId)
+        assertEquals(2, reassigned.revision)
+        assertEquals(clock.now(), reassigned.updatedAt)
+    }
+
     private companion object {
         const val PROJECT_ID = "22222222-2222-4222-8222-222222222222"
+        const val TASK_ID = "11111111-1111-4111-8111-111111111111"
     }
 }

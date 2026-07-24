@@ -32,6 +32,7 @@ class TaskService(
             id = request.id,
             title = request.title,
             notes = request.notes,
+            projectId = request.projectId,
             dueDate = request.dueDate,
             dueAt = request.dueAt,
         )
@@ -44,6 +45,7 @@ class TaskService(
             id = request.id,
             title = input.title,
             notes = input.notes,
+            projectId = request.projectId,
             priority = request.priority,
             dueDate = request.dueDate,
             dueAt = request.dueAt,
@@ -54,6 +56,7 @@ class TaskService(
         return when (repository.insert(task)) {
             is TaskInsertResult.Inserted -> task
             TaskInsertResult.AlreadyExists -> throw TaskConflictException(task.id)
+            TaskInsertResult.InvalidProject -> throw invalidProjectException()
         }
     }
 
@@ -64,6 +67,7 @@ class TaskService(
         validate(
             title = request.title,
             notes = request.notes,
+            projectId = request.projectId,
             dueDate = request.dueDate,
             dueAt = request.dueAt,
             expectedRevision = request.expectedRevision,
@@ -73,6 +77,7 @@ class TaskService(
         val replacement = current.copy(
             title = input.title,
             notes = input.notes,
+            projectId = request.projectId,
             priority = request.priority,
             dueDate = request.dueDate,
             dueAt = request.dueAt,
@@ -89,6 +94,7 @@ class TaskService(
             is TaskMutationResult.Updated -> result.task
             TaskMutationResult.NotFound -> throw TaskNotFoundException(id)
             TaskMutationResult.Conflict -> throw TaskConflictException(id)
+            TaskMutationResult.InvalidProject -> throw invalidProjectException()
         }
     }
 
@@ -112,6 +118,7 @@ class TaskService(
     private fun validate(
         title: String,
         notes: String?,
+        projectId: String?,
         dueDate: LocalDate?,
         dueAt: Instant?,
         expectedRevision: Long? = null,
@@ -119,6 +126,7 @@ class TaskService(
         val issues = TaskValidator.validate(
             title = title,
             notes = notes,
+            projectId = projectId,
             dueDate = dueDate,
             dueAt = dueAt,
             expectedRevision = expectedRevision,
@@ -144,6 +152,15 @@ class TaskService(
         task.title.contains(query, ignoreCase = true) ||
         task.notes?.contains(query, ignoreCase = true) == true
 }
+
+private fun invalidProjectException() = TaskValidationException(
+    listOf(
+        TaskValidationIssue(
+            field = TaskField.PROJECT_ID,
+            code = TaskValidationCode.INVALID,
+        ),
+    ),
+)
 
 class TaskValidationException(
     val issues: List<TaskValidationIssue>,

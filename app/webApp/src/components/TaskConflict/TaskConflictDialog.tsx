@@ -20,6 +20,7 @@ const fieldNames: Record<string, string> = {
   deletion: 'deletion',
   title: 'title',
   notes: 'notes',
+  project: 'project',
   priority: 'priority',
   due_date: 'due date',
   due_at: 'due date',
@@ -50,6 +51,7 @@ export function TaskConflictDialog({
         values.dueDate,
         values.dueAt,
         values.isCompleted,
+        mergeSource?.projectId,
       );
     });
   };

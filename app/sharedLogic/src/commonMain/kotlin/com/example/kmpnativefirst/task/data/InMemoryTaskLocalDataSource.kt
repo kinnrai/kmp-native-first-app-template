@@ -439,6 +439,7 @@ internal data class TaskLocalState(
 private fun Task.withEdit(edit: TaskEdit): Task = copy(
     title = edit.title,
     notes = edit.notes,
+    projectId = edit.projectId,
     priority = edit.priority,
     dueDate = edit.dueDate,
     dueAt = edit.dueAt,

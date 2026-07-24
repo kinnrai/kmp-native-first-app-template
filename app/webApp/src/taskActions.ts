@@ -7,6 +7,7 @@ export interface TaskActions {
     priority: string,
     dueDate: string | null | undefined,
     dueAt: string | null | undefined,
+    projectId: string | null | undefined,
   ): void;
   update(
     taskId: string,
@@ -16,6 +17,7 @@ export interface TaskActions {
     dueDate: string | null | undefined,
     dueAt: string | null | undefined,
     isCompleted: boolean,
+    projectId: string | null | undefined,
   ): void;
   toggleCompleted(taskId: string): void;
   delete(taskId: string): void;
@@ -30,6 +32,7 @@ export interface TaskActions {
     dueDate: string | null | undefined,
     dueAt: string | null | undefined,
     isCompleted: boolean,
+    projectId: string | null | undefined,
   ): void;
   plannedTasks(
     view: string,

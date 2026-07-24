@@ -85,10 +85,26 @@ class SqliteTaskRepositoryTest {
 
         val repository = SqliteTaskRepository.open(jdbcUrl)
         val dueDate = LocalDate(2026, 8, 1)
-        val original = task().copy(dueDate = dueDate, dueAt = null)
+        val project = TaskProject(
+            id = "project-1",
+            name = "Migrated project",
+            createdAt = Instant.parse("2026-07-23T09:00:00Z"),
+            updatedAt = Instant.parse("2026-07-23T09:00:00Z"),
+            revision = 1,
+        )
+        assertEquals(
+            TaskProjectInsertResult.Inserted(project),
+            repository.insertProject(project),
+        )
+        val original = task().copy(
+            projectId = project.id,
+            dueDate = dueDate,
+            dueAt = null,
+        )
 
         assertEquals(TaskInsertResult.Inserted(original), repository.insert(original))
         assertEquals(dueDate, repository.find(original.id)?.dueDate)
+        assertEquals(project.id, repository.find(original.id)?.projectId)
     }
 
     @Test
@@ -97,6 +113,13 @@ class SqliteTaskRepositoryTest {
             .resolve("tasks.db")
         val jdbcUrl = "jdbc:sqlite:$databaseFile"
         val repository = SqliteTaskRepository.open(jdbcUrl)
+        assertEquals(
+            TaskInsertResult.InvalidProject,
+            repository.insert(
+                task(id = "orphan").copy(projectId = "missing-project"),
+            ),
+        )
+        assertNull(repository.find("orphan"))
         val original = TaskProject(
             id = "project-1",
             name = "Personal",
@@ -109,6 +132,22 @@ class SqliteTaskRepositoryTest {
             TaskProjectInsertResult.Inserted(original),
             repository.insertProject(original),
         )
+        val assignedTask = task().copy(projectId = original.id)
+        assertEquals(
+            TaskInsertResult.Inserted(assignedTask),
+            repository.insert(assignedTask),
+        )
+        assertEquals(
+            TaskMutationResult.InvalidProject,
+            repository.replace(
+                task = assignedTask.copy(
+                    projectId = "missing-project",
+                    revision = 2,
+                ),
+                expectedRevision = 1,
+            ),
+        )
+        assertEquals(original.id, repository.find(assignedTask.id)?.projectId)
         assertEquals(
             TaskProjectInsertResult.AlreadyExists,
             repository.insertProject(original),
@@ -133,8 +172,19 @@ class SqliteTaskRepositoryTest {
             ),
         )
         assertEquals(
-            TaskProjectDeleteResult.Deleted,
-            reopenedRepository.deleteProject(original.id, expectedRevision = 2),
+            TaskProjectDeleteResult.Deleted(reassignedTaskCount = 1),
+            reopenedRepository.deleteProject(
+                id = original.id,
+                expectedRevision = 2,
+                reassignedTasksUpdatedAt = Instant.parse("2026-07-23T12:00:00Z"),
+            ),
+        )
+        val reassignedTask = requireNotNull(reopenedRepository.find(assignedTask.id))
+        assertNull(reassignedTask.projectId)
+        assertEquals(2, reassignedTask.revision)
+        assertEquals(
+            Instant.parse("2026-07-23T12:00:00Z"),
+            reassignedTask.updatedAt,
         )
     }
 

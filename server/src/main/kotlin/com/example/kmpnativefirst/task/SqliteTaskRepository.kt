@@ -5,6 +5,7 @@ import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.Table
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.plus
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.SchemaUtils
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
@@ -38,10 +39,14 @@ class SqliteTaskRepository private constructor(
     }
 
     override suspend fun insert(task: Task): TaskInsertResult = suspendTransaction(db = database) {
+        if (!projectExists(task.projectId)) {
+            return@suspendTransaction TaskInsertResult.InvalidProject
+        }
         val insert = TasksTable.insertIgnore { statement ->
             statement[id] = task.id
             statement[title] = task.title
             statement[notes] = task.notes
+            statement[projectId] = task.projectId
             statement[priority] = task.priority.name
             statement[dueDate] = task.dueDate?.toString()
             statement[dueAtEpochMillis] = task.dueAt?.toEpochMilliseconds()
@@ -61,6 +66,9 @@ class SqliteTaskRepository private constructor(
         task: Task,
         expectedRevision: Long,
     ): TaskMutationResult = suspendTransaction(db = database) {
+        if (!projectExists(task.projectId)) {
+            return@suspendTransaction TaskMutationResult.InvalidProject
+        }
         val updatedRows = TasksTable.update(
             where = {
                 (TasksTable.id eq task.id) and
@@ -69,6 +77,7 @@ class SqliteTaskRepository private constructor(
         ) { statement ->
             statement[title] = task.title
             statement[notes] = task.notes
+            statement[projectId] = task.projectId
             statement[priority] = task.priority.name
             statement[dueDate] = task.dueDate?.toString()
             statement[dueAtEpochMillis] = task.dueAt?.toEpochMilliseconds()
@@ -169,13 +178,24 @@ class SqliteTaskRepository private constructor(
     override suspend fun deleteProject(
         id: String,
         expectedRevision: Long,
+        reassignedTasksUpdatedAt: Instant,
     ): TaskProjectDeleteResult = suspendTransaction(db = database) {
         val deletedRows = TaskProjectsTable.deleteWhere {
             (TaskProjectsTable.id eq id) and
                 (TaskProjectsTable.revision eq expectedRevision)
         }
         when {
-            deletedRows == 1 -> TaskProjectDeleteResult.Deleted
+            deletedRows == 1 -> {
+                val reassignedTaskCount = TasksTable.update(
+                    where = { TasksTable.projectId eq id },
+                ) { statement ->
+                    statement[projectId] = null
+                    statement[updatedAtEpochMillis] =
+                        reassignedTasksUpdatedAt.toEpochMilliseconds()
+                    statement[revision] = TasksTable.revision + 1
+                }
+                TaskProjectDeleteResult.Deleted(reassignedTaskCount)
+            }
             TaskProjectsTable.selectAll().where { TaskProjectsTable.id eq id }.empty() ->
                 TaskProjectDeleteResult.NotFound
             else -> TaskProjectDeleteResult.Conflict
@@ -205,6 +225,9 @@ class SqliteTaskRepository private constructor(
                 }.orEmpty()
                 if ("due_date" !in taskColumns) {
                     exec("ALTER TABLE tasks ADD COLUMN due_date VARCHAR(10)")
+                }
+                if ("project_id" !in taskColumns) {
+                    exec("ALTER TABLE tasks ADD COLUMN project_id VARCHAR(36)")
                 }
             }
             return SqliteTaskRepository(database)
@@ -241,6 +264,7 @@ private object TasksTable : Table("tasks") {
     val id = varchar("id", length = 36)
     val title = varchar("title", length = TaskConstraints.MAX_TITLE_LENGTH)
     val notes = text("notes").nullable()
+    val projectId = varchar("project_id", length = 36).nullable()
     val priority = varchar("priority", length = 16)
     val dueDate = varchar("due_date", length = 10).nullable()
     val dueAtEpochMillis = long("due_at_epoch_millis").nullable()
@@ -252,10 +276,19 @@ private object TasksTable : Table("tasks") {
     override val primaryKey = PrimaryKey(id)
 }
 
+private fun projectExists(projectId: String?): Boolean =
+    projectId == null ||
+        TaskProjectsTable
+            .selectAll()
+            .where { TaskProjectsTable.id eq projectId }
+            .limit(1)
+            .any()
+
 private fun toTask(row: ResultRow): Task = Task(
     id = row[TasksTable.id],
     title = row[TasksTable.title],
     notes = row[TasksTable.notes],
+    projectId = row[TasksTable.projectId],
     priority = TaskPriority.valueOf(row[TasksTable.priority]),
     dueDate = row[TasksTable.dueDate]?.let(LocalDate::parse),
     dueAt = row[TasksTable.dueAtEpochMillis]?.let(Instant::fromEpochMilliseconds),

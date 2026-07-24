@@ -36,6 +36,7 @@ internal class OfflineFirstTaskRepository(
         val input = validateAndNormalize(
             title = draft.title,
             notes = draft.notes,
+            projectId = draft.projectId,
             dueDate = draft.dueDate,
             dueAt = draft.dueAt,
         )
@@ -44,6 +45,7 @@ internal class OfflineFirstTaskRepository(
             id = idGenerator(),
             title = input.title,
             notes = input.notes,
+            projectId = draft.projectId,
             priority = draft.priority,
             dueDate = draft.dueDate,
             dueAt = draft.dueAt,
@@ -69,12 +71,14 @@ internal class OfflineFirstTaskRepository(
         val input = validateAndNormalize(
             title = edit.title,
             notes = edit.notes,
+            projectId = edit.projectId,
             dueDate = edit.dueDate,
             dueAt = edit.dueAt,
         )
         val updated = current.copy(
             title = input.title,
             notes = input.notes,
+            projectId = edit.projectId,
             priority = edit.priority,
             dueDate = edit.dueDate,
             dueAt = edit.dueAt,
@@ -394,12 +398,14 @@ internal class OfflineFirstTaskRepository(
     private fun validateAndNormalize(
         title: String,
         notes: String?,
+        projectId: String?,
         dueDate: LocalDate?,
         dueAt: Instant?,
     ) = TaskValidator.normalize(title, notes).also {
         val issues = TaskValidator.validate(
             title = title,
             notes = notes,
+            projectId = projectId,
             dueDate = dueDate,
             dueAt = dueAt,
         )

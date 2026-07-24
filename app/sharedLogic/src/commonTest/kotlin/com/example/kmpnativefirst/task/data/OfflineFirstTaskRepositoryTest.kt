@@ -52,13 +52,19 @@ class OfflineFirstTaskRepositoryTest {
             clock = AdvancingClock(),
             idGenerator = ids::next,
         )
-        repository.create(TaskDraft(title = "Ship it"))
+        repository.create(
+            TaskDraft(
+                title = "Ship it",
+                projectId = PROJECT_ID,
+            ),
+        )
 
         val result = assertIs<TaskSyncResult.Success>(repository.sync())
 
         assertEquals(1, result.pushedCount)
         val item = repository.tasks.first().single()
         assertEquals(1, item.task.revision)
+        assertEquals(PROJECT_ID, item.task.projectId)
         assertEquals(TaskSyncState.SYNCED, item.syncState)
         assertEquals(0, repository.syncStatus.value.pendingCount)
     }
@@ -497,5 +503,9 @@ class OfflineFirstTaskRepositoryTest {
         assertEquals(2, remote.listCalls)
         assertFalse(repository.syncStatus.value.phase == TaskSyncPhase.SYNCING)
         assertNull(repository.syncStatus.value.lastError)
+    }
+
+    private companion object {
+        const val PROJECT_ID = "22222222-2222-4222-8222-222222222222"
     }
 }

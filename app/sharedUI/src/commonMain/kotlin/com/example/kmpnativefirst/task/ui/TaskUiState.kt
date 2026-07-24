@@ -28,6 +28,7 @@ data class TaskUiState(
 
 data class TaskEditorUiState(
     val taskId: String? = null,
+    val projectId: String? = null,
     val title: String = "",
     val notes: String = "",
     val priority: TaskPriority = TaskPriority.NONE,

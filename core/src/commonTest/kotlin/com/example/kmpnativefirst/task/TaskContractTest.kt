@@ -24,6 +24,7 @@ class TaskContractTest {
         val issues = TaskValidator.validate(
             title = " ",
             notes = "x".repeat(TaskConstraints.MAX_NOTES_LENGTH + 1),
+            projectId = "not-a-uuid",
             expectedRevision = 0,
         )
 
@@ -31,6 +32,7 @@ class TaskContractTest {
             listOf(
                 TaskValidationIssue(TaskField.TITLE, TaskValidationCode.REQUIRED),
                 TaskValidationIssue(TaskField.NOTES, TaskValidationCode.TOO_LONG),
+                TaskValidationIssue(TaskField.PROJECT_ID, TaskValidationCode.INVALID),
                 TaskValidationIssue(TaskField.EXPECTED_REVISION, TaskValidationCode.INVALID),
             ),
             issues,
@@ -74,6 +76,7 @@ class TaskContractTest {
         val task = Task(
             id = "task-1",
             title = "Ship the app",
+            projectId = "22222222-2222-4222-8222-222222222222",
             priority = TaskPriority.HIGH,
             dueDate = LocalDate(2026, 8, 1),
             createdAt = Instant.parse("2026-07-23T10:00:00Z"),
@@ -85,6 +88,7 @@ class TaskContractTest {
         val decoded = Json.decodeFromString(Task.serializer(), encoded)
 
         assertEquals(task, decoded)
+        assertEquals(true, encoded.contains("\"projectId\""))
         assertEquals(true, encoded.contains("\"priority\":\"high\""))
         assertEquals(true, encoded.contains("\"dueDate\":\"2026-08-01\""))
     }

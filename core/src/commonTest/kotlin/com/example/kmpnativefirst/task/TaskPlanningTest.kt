@@ -43,13 +43,21 @@ class TaskPlanningTest {
     }
 
     @Test
-    fun inboxContainsOnlyUnscheduledActiveTasks() {
+    fun inboxContainsOnlyUnassignedActiveTasks() {
         assertTrue(
             TaskPlanning.matches(task(), TaskSmartView.INBOX, today, utcPlusEight),
         )
-        assertFalse(
+        assertTrue(
             TaskPlanning.matches(
                 task(dueDate = today),
+                TaskSmartView.INBOX,
+                today,
+                utcPlusEight,
+            ),
+        )
+        assertFalse(
+            TaskPlanning.matches(
+                task(projectId = PROJECT_ID),
                 TaskSmartView.INBOX,
                 today,
                 utcPlusEight,
@@ -90,12 +98,14 @@ class TaskPlanningTest {
     private fun task(
         id: String = "task",
         priority: TaskPriority = TaskPriority.NONE,
+        projectId: String? = null,
         dueDate: LocalDate? = null,
         dueAt: Instant? = null,
         isCompleted: Boolean = false,
     ): Task = Task(
         id = id,
         title = id,
+        projectId = projectId,
         priority = priority,
         dueDate = dueDate,
         dueAt = dueAt,
@@ -104,4 +114,8 @@ class TaskPlanningTest {
         updatedAt = Instant.parse("2026-07-23T09:00:00Z"),
         revision = 1,
     )
+
+    private companion object {
+        const val PROJECT_ID = "22222222-2222-4222-8222-222222222222"
+    }
 }

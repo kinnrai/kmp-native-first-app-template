@@ -73,8 +73,14 @@ class TaskProjectService(
         if (issues.isNotEmpty()) {
             throw TaskProjectValidationException(issues)
         }
-        when (repository.deleteProject(id, expectedRevision)) {
-            TaskProjectDeleteResult.Deleted -> Unit
+        when (
+            repository.deleteProject(
+                id = id,
+                expectedRevision = expectedRevision,
+                reassignedTasksUpdatedAt = clock.now(),
+            )
+        ) {
+            is TaskProjectDeleteResult.Deleted -> Unit
             TaskProjectDeleteResult.NotFound -> throw TaskProjectNotFoundException(id)
             TaskProjectDeleteResult.Conflict -> throw TaskProjectConflictException(id)
         }

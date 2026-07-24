@@ -118,6 +118,7 @@ export function TaskApp({
         values.dueDate,
         values.dueAt,
         values.isCompleted,
+        editor.task.projectId,
       );
     } else {
       actions.create(
@@ -126,6 +127,7 @@ export function TaskApp({
         values.priority,
         values.dueDate,
         values.dueAt,
+        null,
       );
     }
     setEditor(undefined);

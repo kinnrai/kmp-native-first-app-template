@@ -80,7 +80,7 @@ class TaskViewModelTest {
         assertEquals(1, repository.syncCalls)
         assertEquals(3, viewModel.uiState.value.activeCount)
         assertEquals(1, viewModel.uiState.value.completedCount)
-        assertEquals(listOf("one"), viewModel.uiState.value.tasks.map { it.task.id })
+        assertEquals(listOf("three", "four", "one"), viewModel.uiState.value.tasks.map { it.task.id })
 
         viewModel.setView(TaskSmartView.TODAY)
         viewModel.setSearchQuery("release")
@@ -276,6 +276,7 @@ private class FakeTaskRepository(
             id = id,
             title = draft.title,
             notes = draft.notes,
+            projectId = draft.projectId,
             priority = draft.priority,
             dueDate = draft.dueDate,
             dueAt = draft.dueAt,
@@ -289,6 +290,7 @@ private class FakeTaskRepository(
         val updated = current.task.copy(
             title = edit.title,
             notes = edit.notes,
+            projectId = edit.projectId,
             priority = edit.priority,
             dueDate = edit.dueDate,
             dueAt = edit.dueAt,
@@ -312,6 +314,7 @@ private class FakeTaskRepository(
             TaskEdit(
                 title = current.title,
                 notes = current.notes,
+                projectId = current.projectId,
                 priority = current.priority,
                 dueDate = current.dueDate,
                 dueAt = current.dueAt,
@@ -339,6 +342,7 @@ private class FakeTaskRepository(
             is TaskConflictResolution.Merge -> conflict.local?.copy(
                 title = resolution.edit.title,
                 notes = resolution.edit.notes,
+                projectId = resolution.edit.projectId,
                 priority = resolution.edit.priority,
                 dueDate = resolution.edit.dueDate,
                 dueAt = resolution.edit.dueAt,
@@ -397,6 +401,7 @@ private fun task(
     id: String,
     title: String,
     notes: String? = null,
+    projectId: String? = null,
     priority: TaskPriority = TaskPriority.NONE,
     dueDate: LocalDate? = null,
     dueAt: Instant? = null,
@@ -405,6 +410,7 @@ private fun task(
     id = id,
     title = title,
     notes = notes,
+    projectId = projectId,
     priority = priority,
     dueDate = dueDate,
     dueAt = dueAt,

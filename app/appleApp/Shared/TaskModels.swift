@@ -154,6 +154,7 @@ struct TaskRecord: Identifiable, Hashable {
   let id: String
   let title: String
   let notes: String?
+  let projectID: String?
   let priority: TaskPriorityValue
   let dueDate: TaskCalendarDate?
   let dueAt: Date?
@@ -174,6 +175,7 @@ struct TaskRecord: Identifiable, Hashable {
     id = task.id
     title = task.title
     notes = task.notes
+    projectID = task.projectId
     priority = TaskPriorityValue(task.priority)
     if let taskDueDate = task.dueDate {
       dueDate = TaskCalendarDate(taskDueDate)
@@ -204,6 +206,7 @@ struct TaskRecord: Identifiable, Hashable {
 struct TaskEditorDraft: Equatable {
   var title = ""
   var notes = ""
+  var projectID: String?
   var priority = TaskPriorityValue.none
   var includesDueDate = false
   var selectedDueDate = Date()
@@ -214,6 +217,7 @@ struct TaskEditorDraft: Equatable {
     guard let task else { return }
     title = task.title
     notes = task.notes ?? ""
+    projectID = task.projectID
     priority = task.priority
     includesDueDate = task.dueDate != nil || task.dueAt != nil
     selectedDueDate = task.dueDate?.date ?? task.dueAt ?? Date()
@@ -272,6 +276,7 @@ private enum TaskConflictFieldValue {
   case deletion
   case title
   case notes
+  case project
   case priority
   case dueDate
   case completion
@@ -285,6 +290,8 @@ private enum TaskConflictFieldValue {
       self = .title
     } else if field === SharedLogic.TaskConflictField.notes {
       self = .notes
+    } else if field === SharedLogic.TaskConflictField.project {
+      self = .project
     } else if field === SharedLogic.TaskConflictField.priority {
       self = .priority
     } else if field === SharedLogic.TaskConflictField.dueDate ||
@@ -301,6 +308,7 @@ private enum TaskConflictFieldValue {
     case .deletion: "deletion"
     case .title: "title"
     case .notes: "notes"
+    case .project: "project"
     case .priority: "priority"
     case .dueDate: "due date"
     case .completion: "completion"

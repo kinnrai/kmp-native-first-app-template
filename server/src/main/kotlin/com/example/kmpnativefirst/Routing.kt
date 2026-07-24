@@ -258,6 +258,8 @@ private fun validationMessage(
         "Title must be ${TaskConstraints.MAX_TITLE_LENGTH} characters or fewer."
     TaskField.NOTES to TaskValidationCode.TOO_LONG ->
         "Notes must be ${TaskConstraints.MAX_NOTES_LENGTH} characters or fewer."
+    TaskField.PROJECT_ID to TaskValidationCode.INVALID ->
+        "Project ID must reference an existing project."
     TaskField.DUE_DATE to TaskValidationCode.INVALID,
     TaskField.DUE_AT to TaskValidationCode.INVALID,
     -> "Due date and due time cannot both be set."

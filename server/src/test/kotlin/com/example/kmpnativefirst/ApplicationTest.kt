@@ -211,6 +211,16 @@ class ApplicationTest {
         }.decode<TaskProject>()
         assertEquals("Home", updated.name)
         assertEquals(2, updated.revision)
+        val assignedTask = client.post(TaskApi.BASE_PATH) {
+            jsonBody(
+                CreateTaskRequest(
+                    id = TASK_ID,
+                    title = "Plan release",
+                    projectId = updated.id,
+                ),
+            )
+        }.decode<Task>()
+        assertEquals(updated.id, assignedTask.projectId)
 
         val conflict = client.put("${TaskProjectApi.BASE_PATH}/$PROJECT_ID") {
             jsonBody(replacement.copy(name = "Stale"))
@@ -225,6 +235,10 @@ class ApplicationTest {
             "${TaskProjectApi.BASE_PATH}/$PROJECT_ID?expectedRevision=${updated.revision}",
         )
         assertEquals(HttpStatusCode.NoContent, deleted.status)
+        val reassignedTask = client.get("${TaskApi.BASE_PATH}/${assignedTask.id}")
+            .decode<Task>()
+        assertEquals(null, reassignedTask.projectId)
+        assertEquals(assignedTask.revision + 1, reassignedTask.revision)
         val missing = client.get("${TaskProjectApi.BASE_PATH}/$PROJECT_ID")
         assertEquals(HttpStatusCode.NotFound, missing.status)
         assertEquals(

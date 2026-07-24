@@ -54,10 +54,12 @@ class AppleTaskStore internal constructor(
         priority: TaskPriority,
         dueDate: LocalDate?,
         dueAt: Instant?,
+        projectId: String?,
     ): Task = repository.create(
         TaskDraft(
             title = title,
             notes = notes,
+            projectId = projectId,
             priority = priority,
             dueDate = dueDate,
             dueAt = dueAt,
@@ -73,11 +75,13 @@ class AppleTaskStore internal constructor(
         dueDate: LocalDate?,
         dueAt: Instant?,
         isCompleted: Boolean,
+        projectId: String?,
     ): Task = repository.update(
         taskId = taskId,
         edit = TaskEdit(
             title = title,
             notes = notes,
+            projectId = projectId,
             priority = priority,
             dueDate = dueDate,
             dueAt = dueAt,
@@ -118,6 +122,7 @@ class AppleTaskStore internal constructor(
         dueDate: LocalDate?,
         dueAt: Instant?,
         isCompleted: Boolean,
+        projectId: String?,
     ) {
         repository.resolveConflict(
             taskId = taskId,
@@ -125,6 +130,7 @@ class AppleTaskStore internal constructor(
                 TaskEdit(
                     title = title,
                     notes = notes,
+                    projectId = projectId,
                     priority = priority,
                     dueDate = dueDate,
                     dueAt = dueAt,

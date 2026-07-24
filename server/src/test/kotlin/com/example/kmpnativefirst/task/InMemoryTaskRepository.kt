@@ -1,5 +1,7 @@
 package com.example.kmpnativefirst.task
 
+import kotlin.time.Instant
+
 class InMemoryTaskRepository(
     initialTasks: List<Task> = emptyList(),
     initialProjects: List<TaskProject> = emptyList(),
@@ -12,6 +14,9 @@ class InMemoryTaskRepository(
     override suspend fun find(id: String): Task? = tasks[id]
 
     override suspend fun insert(task: Task): TaskInsertResult {
+        if (task.projectId != null && task.projectId !in projects) {
+            return TaskInsertResult.InvalidProject
+        }
         if (task.id in tasks) {
             return TaskInsertResult.AlreadyExists
         }
@@ -23,6 +28,9 @@ class InMemoryTaskRepository(
         task: Task,
         expectedRevision: Long,
     ): TaskMutationResult {
+        if (task.projectId != null && task.projectId !in projects) {
+            return TaskMutationResult.InvalidProject
+        }
         val current = tasks[task.id] ?: return TaskMutationResult.NotFound
         if (current.revision != expectedRevision) {
             return TaskMutationResult.Conflict
@@ -77,12 +85,26 @@ class InMemoryTaskRepository(
     override suspend fun deleteProject(
         id: String,
         expectedRevision: Long,
+        reassignedTasksUpdatedAt: Instant,
     ): TaskProjectDeleteResult {
         val project = projects[id] ?: return TaskProjectDeleteResult.NotFound
         if (project.revision != expectedRevision) {
             return TaskProjectDeleteResult.Conflict
         }
         projects.remove(id)
-        return TaskProjectDeleteResult.Deleted
+        var reassignedTaskCount = 0
+        tasks.replaceAll { _, task ->
+            if (task.projectId == id) {
+                reassignedTaskCount += 1
+                task.copy(
+                    projectId = null,
+                    updatedAt = reassignedTasksUpdatedAt,
+                    revision = task.revision + 1,
+                )
+            } else {
+                task
+            }
+        }
+        return TaskProjectDeleteResult.Deleted(reassignedTaskCount)
     }
 }
