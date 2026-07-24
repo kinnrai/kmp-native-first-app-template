@@ -76,6 +76,16 @@ struct TaskEditorView: View {
             )
           }
 
+          Toggle("Reminder", isOn: reminderEnabled.animation())
+
+          if draft.reminderAt != nil {
+            DatePicker(
+              "Remind me",
+              selection: reminderDate,
+              displayedComponents: [.date, .hourAndMinute]
+            )
+          }
+
           if case .create = presentation.mode {
             EmptyView()
           } else {
@@ -113,5 +123,40 @@ struct TaskEditorView: View {
     #if os(macOS)
       .frame(minWidth: 460, idealWidth: 520, minHeight: 480, idealHeight: 560)
     #endif
+  }
+
+  private var reminderEnabled: Binding<Bool> {
+    Binding(
+      get: { draft.reminderAt != nil },
+      set: { isEnabled in
+        draft.reminderAt = isEnabled ? defaultReminderDate : nil
+      }
+    )
+  }
+
+  private var reminderDate: Binding<Date> {
+    Binding(
+      get: { draft.reminderAt ?? defaultReminderDate },
+      set: { draft.reminderAt = $0 }
+    )
+  }
+
+  private var defaultReminderDate: Date {
+    let now = Date()
+    if let dueAt = draft.preciseDueAt, dueAt > now {
+      return dueAt
+    }
+    if draft.includesDueDate,
+      let dueDate = Calendar.autoupdatingCurrent.date(
+        bySettingHour: 9,
+        minute: 0,
+        second: 0,
+        of: draft.selectedDueDate
+      ),
+      dueDate > now
+    {
+      return dueDate
+    }
+    return now.addingTimeInterval(60 * 60)
   }
 }

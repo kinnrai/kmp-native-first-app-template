@@ -16,16 +16,19 @@ final class TaskStore {
 
   @ObservationIgnored private let baseURL: URL
   @ObservationIgnored private let databaseName: String
+  @ObservationIgnored private let reminderScheduler: any TaskReminderScheduling
   @ObservationIgnored private var backend: AppleTaskStore?
   @ObservationIgnored private var observation: AppleTaskObservation?
   @ObservationIgnored private var hasStarted = false
 
   init(
     baseURL: URL = AppConfiguration.taskAPIBaseURL,
-    databaseName: String = "tasks.db"
+    databaseName: String = "tasks.db",
+    reminderScheduler: (any TaskReminderScheduling)? = nil
   ) {
     self.baseURL = baseURL
     self.databaseName = databaseName
+    self.reminderScheduler = reminderScheduler ?? TaskReminderScheduler()
   }
 
   deinit {
@@ -155,6 +158,9 @@ final class TaskStore {
   func create(_ draft: TaskEditorDraft) async {
     guard let backend else { return }
     await perform {
+      if draft.reminderAt != nil {
+        await self.requestReminderAuthorization()
+      }
       _ = try await backend.create(
         title: draft.normalizedTitle,
         notes: draft.normalizedNotes,
@@ -173,6 +179,9 @@ final class TaskStore {
   ) async {
     guard let backend else { return }
     await perform {
+      if draft.reminderAt != nil {
+        await self.requestReminderAuthorization()
+      }
       _ = try await backend.update(
         taskId: taskID,
         title: draft.normalizedTitle,
@@ -228,6 +237,9 @@ final class TaskStore {
   ) async {
     guard let backend else { return }
     await perform {
+      if draft.reminderAt != nil {
+        await self.requestReminderAuthorization()
+      }
       try await backend.mergeConflict(
         taskId: taskID,
         title: draft.normalizedTitle,
@@ -318,6 +330,7 @@ final class TaskStore {
     projects = snapshot.projects.map(TaskProjectRecord.init)
     projectConflicts = snapshot.projectConflicts.map(TaskProjectConflictRecord.init)
     syncStatus = TaskSyncStatusValue(snapshot.syncStatus)
+    reminderScheduler.reconcile(tasks: tasks)
   }
 
   private func filterTasks(
@@ -357,12 +370,24 @@ final class TaskStore {
     }
   }
 
+  private func requestReminderAuthorization() async {
+    guard await !reminderScheduler.requestAuthorization() else { return }
+    presentedError = PresentedTaskError(
+      title: "Notifications Are Off",
+      message: "The reminder time will be saved, but this Mac or device cannot alert you until notifications are enabled in System Settings."
+    )
+  }
+
   private func present(_ error: Error) {
-    presentedError = PresentedTaskError(message: error.localizedDescription)
+    presentedError = PresentedTaskError(
+      title: "Task Operation Failed",
+      message: error.localizedDescription
+    )
   }
 }
 
 struct PresentedTaskError: Identifiable {
   let id = UUID()
+  let title: String
   let message: String
 }

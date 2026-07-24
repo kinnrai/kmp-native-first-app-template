@@ -161,6 +161,14 @@ struct TaskDetailView: View {
         }
       }
 
+      if let reminderAt = task.reminderAt {
+        GridRow {
+          Label("Reminder", systemImage: "bell")
+            .foregroundStyle(.secondary)
+          Text(reminderAt, format: .dateTime.year().month().day().hour().minute())
+        }
+      }
+
       GridRow {
         Label("Updated", systemImage: "clock")
           .foregroundStyle(.secondary)

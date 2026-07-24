@@ -293,6 +293,7 @@ private enum TaskConflictFieldValue {
   case project
   case priority
   case dueDate
+  case reminder
   case completion
 
   init(_ field: SharedLogic.TaskConflictField) {
@@ -312,6 +313,8 @@ private enum TaskConflictFieldValue {
       || field === SharedLogic.TaskConflictField.dueAt
     {
       self = .dueDate
+    } else if field === SharedLogic.TaskConflictField.reminderAt {
+      self = .reminder
     } else {
       self = .completion
     }
@@ -326,6 +329,7 @@ private enum TaskConflictFieldValue {
     case .project: "project"
     case .priority: "priority"
     case .dueDate: "due date"
+    case .reminder: "reminder"
     case .completion: "completion"
     }
   }

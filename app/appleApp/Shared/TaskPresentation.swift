@@ -82,6 +82,14 @@ struct TaskRow: View {
             }
             .foregroundStyle(task.isOverdue ? .red : .secondary)
           }
+          if let reminderAt = task.reminderAt {
+            Label {
+              Text(reminderAt, format: .dateTime.month(.abbreviated).day().hour().minute())
+            } icon: {
+              Image(systemName: "bell")
+            }
+            .foregroundStyle(.secondary)
+          }
           switch task.syncState {
           case .synced:
             EmptyView()
