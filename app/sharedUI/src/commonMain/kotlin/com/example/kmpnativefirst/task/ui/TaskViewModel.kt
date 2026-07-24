@@ -54,6 +54,7 @@ class TaskViewModel(
     private var latestTasks: List<TaskItem> = emptyList()
     private var latestProjects: List<TaskProjectItem> = emptyList()
     private var latestLabels: List<TaskLabelItem> = emptyList()
+    private var pendingReminderTaskId: String? = null
     private var nextNoticeId = 0L
 
     init {
@@ -101,7 +102,17 @@ class TaskViewModel(
     }
 
     fun showEditEditor(taskId: String) {
+        showTaskEditor(taskId)
+    }
+
+    fun showTaskFromReminder(taskId: String) {
+        pendingReminderTaskId = taskId
+        showTaskEditor(taskId)
+    }
+
+    private fun showTaskEditor(taskId: String) {
         val task = latestTasks.firstOrNull { it.task.id == taskId }?.task ?: return
+        pendingReminderTaskId = null
         mutableUiState.update {
             it.copy(
                 editor = TaskEditorUiState(
@@ -741,6 +752,13 @@ class TaskViewModel(
                 latestTasks = snapshot.allTasks
                 latestProjects = snapshot.projects
                 latestLabels = snapshot.labels
+                pendingReminderTaskId?.let { taskId ->
+                    if (snapshot.allTasks.any { it.task.id == taskId }) {
+                        showTaskEditor(taskId)
+                    } else {
+                        pendingReminderTaskId = null
+                    }
+                }
                 mutableUiState.update { current ->
                     val projectIds = snapshot.projects
                         .mapTo(mutableSetOf()) { it.project.id }

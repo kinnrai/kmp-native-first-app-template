@@ -18,6 +18,7 @@ dependencies {
     implementation(project(":app:sharedUI"))
 
     implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.core.ktx)
 
     implementation(libs.compose.runtime)
     implementation(libs.compose.runtimeSaveable)
@@ -26,6 +27,7 @@ dependencies {
     implementation(libs.compose.ui)
     implementation(libs.compose.uiToolingPreview)
     debugImplementation(libs.compose.uiTooling)
+    testImplementation(libs.junit)
 }
 
 android {

@@ -37,6 +37,7 @@ import com.example.kmpnativefirst.task.data.TaskProjectItem
 import com.example.kmpnativefirst.task.data.TaskSyncState
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlin.time.Instant
 
 @OptIn(ExperimentalTestApi::class)
@@ -269,7 +270,6 @@ class TaskScreenUiTest {
                 activeCount = TASKS.size,
             ),
         )
-
         setContent {
             TestTaskScreen(
                 state = state,
@@ -301,11 +301,13 @@ class TaskScreenUiTest {
                 activeCount = TASKS.size,
             ),
         )
+        var permissionRequested = false
 
         setContent {
             TestTaskScreen(
                 state = state,
                 onStateChange = { state = it },
+                onReminderPermissionRequest = { permissionRequested = true },
             )
         }
 
@@ -316,6 +318,7 @@ class TaskScreenUiTest {
             .assertHasClickAction()
             .performClick()
         onNodeWithText("Reminder date").assertIsDisplayed()
+        assertTrue(permissionRequested)
     }
 }
 
@@ -327,6 +330,7 @@ private fun TestTaskScreen(
     onSaveProject: () -> Unit = {},
     modifier: Modifier = Modifier,
     onLabelSave: () -> Unit = {},
+    onReminderPermissionRequest: () -> Unit = {},
 ) {
     MaterialTheme {
         TaskScreen(
@@ -382,6 +386,7 @@ private fun TestTaskScreen(
                         state.copy(editor = state.editor?.copy(reminderAt = reminderAt)),
                     )
                 },
+                requestReminderPermission = onReminderPermissionRequest,
                 saveEditor = onSave,
                 createProject = {
                     onStateChange(

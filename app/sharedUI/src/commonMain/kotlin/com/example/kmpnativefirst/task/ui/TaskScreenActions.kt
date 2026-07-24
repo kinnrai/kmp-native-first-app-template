@@ -52,6 +52,7 @@ internal class TaskScreenActions(
     val changeEditorPriority: (TaskPriority) -> Unit = {},
     val changeEditorDueDate: (LocalDate?) -> Unit = {},
     val changeEditorReminderAt: (Instant?) -> Unit = {},
+    val requestReminderPermission: () -> Unit = {},
     val changeEditorCompleted: (Boolean) -> Unit = {},
     val changeEditorLabel: (String, Boolean) -> Unit = { _, _ -> },
     val saveEditor: () -> Unit = {},

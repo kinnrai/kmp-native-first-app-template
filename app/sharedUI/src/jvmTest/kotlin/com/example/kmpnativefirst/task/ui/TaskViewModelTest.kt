@@ -553,6 +553,22 @@ class TaskViewModelTest {
 
         viewModel.viewModelScope.cancel()
     }
+
+    @Test
+    fun opensTheReminderTaskAfterTheRepositoryFinishesLoading() = runTest(dispatcher) {
+        val repository = FakeTaskRepository(
+            initialTasks = listOf(
+                taskItem(id = "reminder", title = "Reminder task"),
+            ),
+        )
+        val viewModel = taskViewModel(repository)
+
+        viewModel.showTaskFromReminder("reminder")
+        advanceUntilIdle()
+
+        assertEquals("reminder", viewModel.uiState.value.editor?.taskId)
+        viewModel.viewModelScope.cancel()
+    }
 }
 
 private class FakeTaskRepository(

@@ -47,6 +47,7 @@ import kotlin.time.Instant
 internal fun TaskReminderEditor(
     editor: TaskEditorUiState,
     onReminderChange: (Instant?) -> Unit,
+    onReminderPermissionRequest: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var showDatePicker by remember(editor.taskId, editor.reminderAt) {
@@ -67,6 +68,7 @@ internal fun TaskReminderEditor(
     ) {
         OutlinedButton(
             onClick = {
+                onReminderPermissionRequest()
                 pendingReminder = defaultReminderAt(
                     editor = editor,
                     now = Clock.System.now(),
