@@ -3,13 +3,24 @@ package com.example.kmpnativefirst
 import com.example.kmpnativefirst.task.ApiErrorResponse
 import com.example.kmpnativefirst.task.ApiFieldIssue
 import com.example.kmpnativefirst.task.CreateTaskRequest
+import com.example.kmpnativefirst.task.CreateTaskProjectRequest
 import com.example.kmpnativefirst.task.ReplaceTaskRequest
+import com.example.kmpnativefirst.task.ReplaceTaskProjectRequest
 import com.example.kmpnativefirst.task.TaskApi
 import com.example.kmpnativefirst.task.TaskConflictException
 import com.example.kmpnativefirst.task.TaskConstraints
 import com.example.kmpnativefirst.task.TaskField
 import com.example.kmpnativefirst.task.TaskFilter
 import com.example.kmpnativefirst.task.TaskNotFoundException
+import com.example.kmpnativefirst.task.TaskProjectApi
+import com.example.kmpnativefirst.task.TaskProjectApiErrorResponse
+import com.example.kmpnativefirst.task.TaskProjectApiFieldIssue
+import com.example.kmpnativefirst.task.TaskProjectConflictException
+import com.example.kmpnativefirst.task.TaskProjectConstraints
+import com.example.kmpnativefirst.task.TaskProjectField
+import com.example.kmpnativefirst.task.TaskProjectNotFoundException
+import com.example.kmpnativefirst.task.TaskProjectService
+import com.example.kmpnativefirst.task.TaskProjectValidationException
 import com.example.kmpnativefirst.task.TaskService
 import com.example.kmpnativefirst.task.TaskValidationCode
 import com.example.kmpnativefirst.task.TaskValidationException
@@ -36,7 +47,10 @@ import io.ktor.server.routing.routing
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 
-fun Application.configureApplication(taskService: TaskService) {
+fun Application.configureApplication(
+    taskService: TaskService,
+    taskProjectService: TaskProjectService,
+) {
     install(ContentNegotiation) {
         json(
             Json {
@@ -77,6 +91,40 @@ fun Application.configureApplication(taskService: TaskService) {
                 message = ApiErrorResponse(
                     code = "task_conflict",
                     message = "Task '${cause.taskId}' has changed. Refresh and try again.",
+                ),
+            )
+        }
+        exception<TaskProjectValidationException> { call, cause ->
+            call.respond(
+                status = HttpStatusCode.BadRequest,
+                message = TaskProjectApiErrorResponse(
+                    code = "validation_failed",
+                    message = "One or more project fields are invalid.",
+                    issues = cause.issues.map { issue ->
+                        TaskProjectApiFieldIssue(
+                            field = issue.field,
+                            code = issue.code,
+                            message = projectValidationMessage(issue.field, issue.code),
+                        )
+                    },
+                ),
+            )
+        }
+        exception<TaskProjectNotFoundException> { call, cause ->
+            call.respond(
+                status = HttpStatusCode.NotFound,
+                message = TaskProjectApiErrorResponse(
+                    code = "project_not_found",
+                    message = "Project '${cause.projectId}' was not found.",
+                ),
+            )
+        }
+        exception<TaskProjectConflictException> { call, cause ->
+            call.respond(
+                status = HttpStatusCode.Conflict,
+                message = TaskProjectApiErrorResponse(
+                    code = "project_conflict",
+                    message = "Project '${cause.projectId}' has changed. Refresh and try again.",
                 ),
             )
         }
@@ -138,6 +186,39 @@ fun Application.configureApplication(taskService: TaskService) {
                 call.respond(HttpStatusCode.NoContent)
             }
         }
+        route(TaskProjectApi.BASE_PATH) {
+            get {
+                call.respond(taskProjectService.list())
+            }
+            get("/{id}") {
+                call.respond(taskProjectService.find(call.pathId("project")))
+            }
+            post {
+                val project = taskProjectService.create(
+                    call.receive<CreateTaskProjectRequest>(),
+                )
+                call.response.header(
+                    HttpHeaders.Location,
+                    "${TaskProjectApi.BASE_PATH}/${project.id}",
+                )
+                call.respond(HttpStatusCode.Created, project)
+            }
+            put("/{id}") {
+                call.respond(
+                    taskProjectService.replace(
+                        id = call.pathId("project"),
+                        request = call.receive<ReplaceTaskProjectRequest>(),
+                    ),
+                )
+            }
+            delete("/{id}") {
+                taskProjectService.delete(
+                    id = call.pathId("project"),
+                    expectedRevision = call.expectedRevision(),
+                )
+                call.respond(HttpStatusCode.NoContent)
+            }
+        }
     }
 }
 
@@ -146,8 +227,11 @@ private fun parseFilter(value: String): TaskFilter = TaskFilter.entries.firstOrN
 } ?: throw BadRequestException("Unknown task filter.")
 
 private fun io.ktor.server.application.ApplicationCall.taskId(): String =
+    pathId("task")
+
+private fun io.ktor.server.application.ApplicationCall.pathId(kind: String): String =
     parameters["id"]?.takeIf(String::isNotBlank)
-        ?: throw BadRequestException("A task ID is required.")
+        ?: throw BadRequestException("A $kind ID is required.")
 
 private fun io.ktor.server.application.ApplicationCall.expectedRevision(): Long =
     request.queryParameters["expectedRevision"]?.toLongOrNull()
@@ -178,6 +262,21 @@ private fun validationMessage(
     TaskField.DUE_AT to TaskValidationCode.INVALID,
     -> "Due date and due time cannot both be set."
     TaskField.EXPECTED_REVISION to TaskValidationCode.INVALID ->
+        "Expected revision must be at least 1."
+    else -> "The value is invalid."
+}
+
+private fun projectValidationMessage(
+    field: TaskProjectField,
+    code: TaskValidationCode,
+): String = when (field to code) {
+    TaskProjectField.ID to TaskValidationCode.INVALID ->
+        "ID must be a UUID."
+    TaskProjectField.NAME to TaskValidationCode.REQUIRED ->
+        "Name must not be blank."
+    TaskProjectField.NAME to TaskValidationCode.TOO_LONG ->
+        "Name must be ${TaskProjectConstraints.MAX_NAME_LENGTH} characters or fewer."
+    TaskProjectField.EXPECTED_REVISION to TaskValidationCode.INVALID ->
         "Expected revision must be at least 1."
     else -> "The value is invalid."
 }

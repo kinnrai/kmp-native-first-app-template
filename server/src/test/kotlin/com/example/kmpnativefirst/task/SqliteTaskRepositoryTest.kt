@@ -91,6 +91,53 @@ class SqliteTaskRepositoryTest {
         assertEquals(dueDate, repository.find(original.id)?.dueDate)
     }
 
+    @Test
+    fun persistsProjectsAndAppliesRevisionChecks() = runBlocking {
+        val databaseFile = Files.createTempDirectory("project-repository-test")
+            .resolve("tasks.db")
+        val jdbcUrl = "jdbc:sqlite:$databaseFile"
+        val repository = SqliteTaskRepository.open(jdbcUrl)
+        val original = TaskProject(
+            id = "project-1",
+            name = "Personal",
+            color = TaskProjectColor.ROSE,
+            createdAt = Instant.parse("2026-07-23T10:00:00Z"),
+            updatedAt = Instant.parse("2026-07-23T10:00:00Z"),
+            revision = 1,
+        )
+        assertEquals(
+            TaskProjectInsertResult.Inserted(original),
+            repository.insertProject(original),
+        )
+        assertEquals(
+            TaskProjectInsertResult.AlreadyExists,
+            repository.insertProject(original),
+        )
+
+        val reopenedRepository = SqliteTaskRepository.open(jdbcUrl)
+        assertEquals(original, reopenedRepository.findProject(original.id))
+        val replacement = original.copy(
+            name = "Home",
+            revision = 2,
+            updatedAt = Instant.parse("2026-07-23T11:00:00Z"),
+        )
+        assertEquals(
+            TaskProjectMutationResult.Updated(replacement),
+            reopenedRepository.replaceProject(replacement, expectedRevision = 1),
+        )
+        assertEquals(
+            TaskProjectMutationResult.Conflict,
+            reopenedRepository.replaceProject(
+                replacement.copy(name = "Stale"),
+                expectedRevision = 1,
+            ),
+        )
+        assertEquals(
+            TaskProjectDeleteResult.Deleted,
+            reopenedRepository.deleteProject(original.id, expectedRevision = 2),
+        )
+    }
+
     private fun task(
         id: String = "task-1",
         isCompleted: Boolean = false,

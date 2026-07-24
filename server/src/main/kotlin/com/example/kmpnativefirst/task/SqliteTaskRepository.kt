@@ -20,7 +20,7 @@ import kotlin.time.Instant
 
 class SqliteTaskRepository private constructor(
     private val database: Database,
-) : TaskRepository {
+) : TaskRepository, TaskProjectRepository {
     override suspend fun list(): List<Task> = suspendTransaction(db = database) {
         TasksTable
             .selectAll()
@@ -105,6 +105,83 @@ class SqliteTaskRepository private constructor(
         TasksTable.deleteWhere { TasksTable.isCompleted eq true }
     }
 
+    override suspend fun listProjects(): List<TaskProject> =
+        suspendTransaction(db = database) {
+            TaskProjectsTable
+                .selectAll()
+                .orderBy(TaskProjectsTable.name to SortOrder.ASC)
+                .map(::toTaskProject)
+        }
+
+    override suspend fun findProject(id: String): TaskProject? =
+        suspendTransaction(db = database) {
+            TaskProjectsTable
+                .selectAll()
+                .where { TaskProjectsTable.id eq id }
+                .limit(1)
+                .singleOrNull()
+                ?.let(::toTaskProject)
+        }
+
+    override suspend fun insertProject(
+        project: TaskProject,
+    ): TaskProjectInsertResult = suspendTransaction(db = database) {
+        val insert = TaskProjectsTable.insertIgnore { statement ->
+            statement[id] = project.id
+            statement[name] = project.name
+            statement[color] = project.color.name
+            statement[createdAtEpochMillis] = project.createdAt.toEpochMilliseconds()
+            statement[updatedAtEpochMillis] = project.updatedAt.toEpochMilliseconds()
+            statement[revision] = project.revision
+        }
+        if (insert.insertedCount == 1) {
+            TaskProjectInsertResult.Inserted(project)
+        } else {
+            TaskProjectInsertResult.AlreadyExists
+        }
+    }
+
+    override suspend fun replaceProject(
+        project: TaskProject,
+        expectedRevision: Long,
+    ): TaskProjectMutationResult = suspendTransaction(db = database) {
+        val updatedRows = TaskProjectsTable.update(
+            where = {
+                (TaskProjectsTable.id eq project.id) and
+                    (TaskProjectsTable.revision eq expectedRevision)
+            },
+        ) { statement ->
+            statement[name] = project.name
+            statement[color] = project.color.name
+            statement[updatedAtEpochMillis] = project.updatedAt.toEpochMilliseconds()
+            statement[revision] = project.revision
+        }
+        when {
+            updatedRows == 1 -> TaskProjectMutationResult.Updated(project)
+            TaskProjectsTable
+                .selectAll()
+                .where { TaskProjectsTable.id eq project.id }
+                .empty() -> TaskProjectMutationResult.NotFound
+            else -> TaskProjectMutationResult.Conflict
+        }
+    }
+
+    override suspend fun deleteProject(
+        id: String,
+        expectedRevision: Long,
+    ): TaskProjectDeleteResult = suspendTransaction(db = database) {
+        val deletedRows = TaskProjectsTable.deleteWhere {
+            (TaskProjectsTable.id eq id) and
+                (TaskProjectsTable.revision eq expectedRevision)
+        }
+        when {
+            deletedRows == 1 -> TaskProjectDeleteResult.Deleted
+            TaskProjectsTable.selectAll().where { TaskProjectsTable.id eq id }.empty() ->
+                TaskProjectDeleteResult.NotFound
+            else -> TaskProjectDeleteResult.Conflict
+        }
+    }
+
     companion object {
         private const val SQLITE_PREFIX = "jdbc:sqlite:"
 
@@ -118,7 +195,7 @@ class SqliteTaskRepository private constructor(
                 driver = "org.sqlite.JDBC",
             )
             transaction(database) {
-                SchemaUtils.create(TasksTable)
+                SchemaUtils.create(TaskProjectsTable, TasksTable)
                 val taskColumns = exec("PRAGMA table_info(tasks)") { result ->
                     buildSet {
                         while (result.next()) {
@@ -149,6 +226,17 @@ class SqliteTaskRepository private constructor(
     }
 }
 
+private object TaskProjectsTable : Table("task_projects") {
+    val id = varchar("id", length = 36)
+    val name = varchar("name", length = TaskProjectConstraints.MAX_NAME_LENGTH)
+    val color = varchar("color", length = 16)
+    val createdAtEpochMillis = long("created_at_epoch_millis")
+    val updatedAtEpochMillis = long("updated_at_epoch_millis")
+    val revision = long("revision")
+
+    override val primaryKey = PrimaryKey(id)
+}
+
 private object TasksTable : Table("tasks") {
     val id = varchar("id", length = 36)
     val title = varchar("title", length = TaskConstraints.MAX_TITLE_LENGTH)
@@ -175,4 +263,13 @@ private fun toTask(row: ResultRow): Task = Task(
     createdAt = Instant.fromEpochMilliseconds(row[TasksTable.createdAtEpochMillis]),
     updatedAt = Instant.fromEpochMilliseconds(row[TasksTable.updatedAtEpochMillis]),
     revision = row[TasksTable.revision],
+)
+
+private fun toTaskProject(row: ResultRow): TaskProject = TaskProject(
+    id = row[TaskProjectsTable.id],
+    name = row[TaskProjectsTable.name],
+    color = TaskProjectColor.valueOf(row[TaskProjectsTable.color]),
+    createdAt = Instant.fromEpochMilliseconds(row[TaskProjectsTable.createdAtEpochMillis]),
+    updatedAt = Instant.fromEpochMilliseconds(row[TaskProjectsTable.updatedAtEpochMillis]),
+    revision = row[TaskProjectsTable.revision],
 )
