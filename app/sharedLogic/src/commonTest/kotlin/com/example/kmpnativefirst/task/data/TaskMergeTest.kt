@@ -1,6 +1,7 @@
 package com.example.kmpnativefirst.task.data
 
 import com.example.kmpnativefirst.task.TaskPriority
+import kotlinx.datetime.LocalDate
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -35,5 +36,19 @@ class TaskMergeTest {
         )
 
         assertEquals(setOf(TaskConflictField.TITLE), result.fields)
+    }
+
+    @Test
+    fun mergesDateOnlyDeadlinesIndependentlyFromOtherFields() {
+        val base = task()
+        val local = base.copy(dueDate = LocalDate(2026, 8, 1))
+        val remote = base.copy(priority = TaskPriority.HIGH, revision = 2)
+
+        val result = assertIs<TaskMergeResult.Merged>(
+            TaskMerge.merge(base, local, remote),
+        )
+
+        assertEquals(LocalDate(2026, 8, 1), result.task.dueDate)
+        assertEquals(TaskPriority.HIGH, result.task.priority)
     }
 }

@@ -4,6 +4,7 @@ import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import com.example.kmpnativefirst.task.data.local.db.TaskDatabase
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
+import kotlinx.datetime.LocalDate
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Properties
@@ -48,7 +49,11 @@ class SqlDelightTaskLocalDataSourceTest {
         try {
             open(path).useSource { source ->
                 source.applyCreate(
-                    task = task(title = "Persist me", revision = 0),
+                    task = task(
+                        title = "Persist me",
+                        dueDate = LocalDate(2026, 8, 1),
+                        revision = 0,
+                    ),
                     operationId = "operation",
                     enqueuedAt = TEST_INSTANT,
                 )
@@ -57,6 +62,7 @@ class SqlDelightTaskLocalDataSourceTest {
             open(path).useSource { reopened ->
                 val item = reopened.observeTasks().first().single()
                 assertEquals("Persist me", item.task.title)
+                assertEquals(LocalDate(2026, 8, 1), item.task.dueDate)
                 assertEquals(TaskSyncState.PENDING, item.syncState)
                 assertEquals(TaskMutationKind.CREATE, reopened.nextMutation()?.kind)
                 assertEquals(1, reopened.pendingCount())

@@ -7,6 +7,7 @@ import com.example.kmpnativefirst.task.data.local.CachedTask
 import com.example.kmpnativefirst.task.data.local.TaskConflict as DatabaseTaskConflict
 import com.example.kmpnativefirst.task.data.local.TaskOutbox
 import com.example.kmpnativefirst.task.data.local.db.TaskDatabase
+import kotlinx.datetime.LocalDate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
@@ -436,6 +437,7 @@ internal class SqlDelightTaskLocalDataSource(
             title = task.title,
             notes = task.notes,
             priority = task.priority.name,
+            dueDate = task.dueDate?.toString(),
             dueAtEpochMillis = task.dueAt?.toEpochMilliseconds(),
             isCompleted = task.isCompleted,
             createdAtEpochMillis = task.createdAt.toEpochMilliseconds(),
@@ -496,6 +498,7 @@ private fun CachedTask.toTask(): Task = Task(
     title = title,
     notes = notes,
     priority = TaskPriority.valueOf(priority),
+    dueDate = dueDate?.let(LocalDate::parse),
     dueAt = dueAtEpochMillis?.let(Instant::fromEpochMilliseconds),
     isCompleted = isCompleted,
     createdAt = Instant.fromEpochMilliseconds(createdAtEpochMillis),
@@ -534,6 +537,7 @@ private fun Task.withEdit(edit: TaskEdit): Task = copy(
     title = edit.title,
     notes = edit.notes,
     priority = edit.priority,
+    dueDate = edit.dueDate,
     dueAt = edit.dueAt,
     isCompleted = edit.isCompleted,
 )

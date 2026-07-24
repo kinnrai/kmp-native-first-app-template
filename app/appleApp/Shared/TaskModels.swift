@@ -203,7 +203,8 @@ private enum TaskConflictFieldValue {
       self = .notes
     } else if field === SharedLogic.TaskConflictField.priority {
       self = .priority
-    } else if field === SharedLogic.TaskConflictField.dueAt {
+    } else if field === SharedLogic.TaskConflictField.dueDate ||
+                field === SharedLogic.TaskConflictField.dueAt {
       self = .dueDate
     } else {
       self = .completion

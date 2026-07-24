@@ -440,12 +440,14 @@ private fun Task.withEdit(edit: TaskEdit): Task = copy(
     title = edit.title,
     notes = edit.notes,
     priority = edit.priority,
+    dueDate = edit.dueDate,
     dueAt = edit.dueAt,
     isCompleted = edit.isCompleted,
 )
 
 private val taskItemComparator = compareBy<TaskItem>(
     { it.task.isCompleted },
-    { it.task.dueAt == null },
+    { it.task.dueDate == null && it.task.dueAt == null },
+    { it.task.dueDate },
     { it.task.dueAt },
 ).thenByDescending { it.task.updatedAt }

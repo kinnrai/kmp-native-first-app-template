@@ -2,6 +2,7 @@ package com.example.kmpnativefirst.task.data
 
 import com.example.kmpnativefirst.task.Task
 import com.example.kmpnativefirst.task.TaskPriority
+import kotlinx.datetime.LocalDate
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
@@ -17,6 +18,7 @@ internal fun task(
     title: String = "Write tests",
     notes: String? = null,
     priority: TaskPriority = TaskPriority.NONE,
+    dueDate: LocalDate? = null,
     dueAt: Instant? = null,
     isCompleted: Boolean = false,
     createdAt: Instant = TEST_INSTANT,
@@ -27,6 +29,7 @@ internal fun task(
     title = title,
     notes = notes,
     priority = priority,
+    dueDate = dueDate,
     dueAt = dueAt,
     isCompleted = isCompleted,
     createdAt = createdAt,

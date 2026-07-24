@@ -1,6 +1,8 @@
 package com.example.kmpnativefirst.task
 
+import kotlinx.datetime.LocalDate
 import kotlin.time.Clock
+import kotlin.time.Instant
 
 class TaskService(
     private val repository: TaskRepository,
@@ -26,7 +28,13 @@ class TaskService(
         ?: throw TaskNotFoundException(id)
 
     suspend fun create(request: CreateTaskRequest): Task {
-        val issues = TaskValidator.validateCreate(request.id, request.title, request.notes)
+        val issues = TaskValidator.validateCreate(
+            id = request.id,
+            title = request.title,
+            notes = request.notes,
+            dueDate = request.dueDate,
+            dueAt = request.dueAt,
+        )
         if (issues.isNotEmpty()) {
             throw TaskValidationException(issues)
         }
@@ -37,6 +45,7 @@ class TaskService(
             title = input.title,
             notes = input.notes,
             priority = request.priority,
+            dueDate = request.dueDate,
             dueAt = request.dueAt,
             createdAt = now,
             updatedAt = now,
@@ -52,13 +61,20 @@ class TaskService(
         id: String,
         request: ReplaceTaskRequest,
     ): Task {
-        validate(request.title, request.notes, request.expectedRevision)
+        validate(
+            title = request.title,
+            notes = request.notes,
+            dueDate = request.dueDate,
+            dueAt = request.dueAt,
+            expectedRevision = request.expectedRevision,
+        )
         val current = repository.find(id) ?: throw TaskNotFoundException(id)
         val input = TaskValidator.normalize(request.title, request.notes)
         val replacement = current.copy(
             title = input.title,
             notes = input.notes,
             priority = request.priority,
+            dueDate = request.dueDate,
             dueAt = request.dueAt,
             isCompleted = request.isCompleted,
             updatedAt = clock.now(),
@@ -96,9 +112,17 @@ class TaskService(
     private fun validate(
         title: String,
         notes: String?,
+        dueDate: LocalDate?,
+        dueAt: Instant?,
         expectedRevision: Long? = null,
     ) {
-        val issues = TaskValidator.validate(title, notes, expectedRevision)
+        val issues = TaskValidator.validate(
+            title = title,
+            notes = notes,
+            dueDate = dueDate,
+            dueAt = dueAt,
+            expectedRevision = expectedRevision,
+        )
         if (issues.isNotEmpty()) {
             throw TaskValidationException(issues)
         }

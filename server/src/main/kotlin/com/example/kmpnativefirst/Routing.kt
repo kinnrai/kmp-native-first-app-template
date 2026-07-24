@@ -174,6 +174,9 @@ private fun validationMessage(
         "Title must be ${TaskConstraints.MAX_TITLE_LENGTH} characters or fewer."
     TaskField.NOTES to TaskValidationCode.TOO_LONG ->
         "Notes must be ${TaskConstraints.MAX_NOTES_LENGTH} characters or fewer."
+    TaskField.DUE_DATE to TaskValidationCode.INVALID,
+    TaskField.DUE_AT to TaskValidationCode.INVALID,
+    -> "Due date and due time cannot both be set."
     TaskField.EXPECTED_REVISION to TaskValidationCode.INVALID ->
         "Expected revision must be at least 1."
     else -> "The value is invalid."

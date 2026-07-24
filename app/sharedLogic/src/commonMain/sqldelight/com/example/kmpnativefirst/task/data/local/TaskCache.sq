@@ -11,7 +11,8 @@ CREATE TABLE cachedTask (
     updatedAtEpochMillis INTEGER NOT NULL,
     revision INTEGER NOT NULL,
     syncState TEXT NOT NULL,
-    isDeleted INTEGER AS Boolean NOT NULL
+    isDeleted INTEGER AS Boolean NOT NULL,
+    dueDate TEXT
 );
 
 CREATE TABLE taskOutbox (
@@ -42,7 +43,8 @@ FROM cachedTask
 WHERE isDeleted = 0
 ORDER BY
     isCompleted ASC,
-    CASE WHEN dueAtEpochMillis IS NULL THEN 1 ELSE 0 END,
+    CASE WHEN dueDate IS NULL AND dueAtEpochMillis IS NULL THEN 1 ELSE 0 END,
+    dueDate ASC,
     dueAtEpochMillis ASC,
     updatedAtEpochMillis DESC;
 
@@ -67,9 +69,10 @@ INSERT OR REPLACE INTO cachedTask(
     updatedAtEpochMillis,
     revision,
     syncState,
-    isDeleted
+    isDeleted,
+    dueDate
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 deleteTaskById:
 DELETE FROM cachedTask

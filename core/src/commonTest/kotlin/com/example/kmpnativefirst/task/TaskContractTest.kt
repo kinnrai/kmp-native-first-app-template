@@ -1,5 +1,6 @@
 package com.example.kmpnativefirst.task
 
+import kotlinx.datetime.LocalDate
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -51,12 +52,30 @@ class TaskContractTest {
     }
 
     @Test
+    fun rejectsAmbiguousDateOnlyAndTimedDeadlines() {
+        val issues = TaskValidator.validate(
+            title = "Plan release",
+            notes = null,
+            dueDate = LocalDate(2026, 8, 1),
+            dueAt = Instant.parse("2026-08-01T09:00:00Z"),
+        )
+
+        assertEquals(
+            listOf(
+                TaskValidationIssue(TaskField.DUE_DATE, TaskValidationCode.INVALID),
+                TaskValidationIssue(TaskField.DUE_AT, TaskValidationCode.INVALID),
+            ),
+            issues,
+        )
+    }
+
+    @Test
     fun serializesTaskContractWithStableWireValues() {
         val task = Task(
             id = "task-1",
             title = "Ship the app",
             priority = TaskPriority.HIGH,
-            dueAt = Instant.parse("2026-08-01T09:00:00Z"),
+            dueDate = LocalDate(2026, 8, 1),
             createdAt = Instant.parse("2026-07-23T10:00:00Z"),
             updatedAt = Instant.parse("2026-07-23T10:00:00Z"),
             revision = 1,
@@ -67,6 +86,6 @@ class TaskContractTest {
 
         assertEquals(task, decoded)
         assertEquals(true, encoded.contains("\"priority\":\"high\""))
-        assertEquals(true, encoded.contains("\"dueAt\":\"2026-08-01T09:00:00Z\""))
+        assertEquals(true, encoded.contains("\"dueDate\":\"2026-08-01\""))
     }
 }

@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.datetime.LocalDate
 import kotlin.time.Clock
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
@@ -32,13 +33,19 @@ internal class OfflineFirstTaskRepository(
     }
 
     override suspend fun create(draft: TaskDraft): Task {
-        val input = validateAndNormalize(draft.title, draft.notes)
+        val input = validateAndNormalize(
+            title = draft.title,
+            notes = draft.notes,
+            dueDate = draft.dueDate,
+            dueAt = draft.dueAt,
+        )
         val now = clock.now()
         val task = Task(
             id = idGenerator(),
             title = input.title,
             notes = input.notes,
             priority = draft.priority,
+            dueDate = draft.dueDate,
             dueAt = draft.dueAt,
             createdAt = now,
             updatedAt = now,
@@ -59,11 +66,17 @@ internal class OfflineFirstTaskRepository(
     ): Task {
         val current = local.findTask(taskId)?.task
             ?: throw CachedTaskNotFoundException(taskId)
-        val input = validateAndNormalize(edit.title, edit.notes)
+        val input = validateAndNormalize(
+            title = edit.title,
+            notes = edit.notes,
+            dueDate = edit.dueDate,
+            dueAt = edit.dueAt,
+        )
         val updated = current.copy(
             title = input.title,
             notes = input.notes,
             priority = edit.priority,
+            dueDate = edit.dueDate,
             dueAt = edit.dueAt,
             isCompleted = edit.isCompleted,
             updatedAt = clock.now(),
@@ -381,8 +394,15 @@ internal class OfflineFirstTaskRepository(
     private fun validateAndNormalize(
         title: String,
         notes: String?,
+        dueDate: LocalDate?,
+        dueAt: Instant?,
     ) = TaskValidator.normalize(title, notes).also {
-        val issues = TaskValidator.validate(title, notes)
+        val issues = TaskValidator.validate(
+            title = title,
+            notes = notes,
+            dueDate = dueDate,
+            dueAt = dueAt,
+        )
         if (issues.isNotEmpty()) {
             throw InvalidTaskInputException(issues)
         }
