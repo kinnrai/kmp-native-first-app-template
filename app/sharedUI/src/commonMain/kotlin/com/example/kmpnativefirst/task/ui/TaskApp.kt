@@ -96,6 +96,7 @@ import com.example.kmpnativefirst.task.data.TaskLabelItem
 import com.example.kmpnativefirst.task.data.TaskProjectConflictResolution
 import com.example.kmpnativefirst.task.data.TaskProjectItem
 import com.example.kmpnativefirst.task.data.TaskRepository
+import com.example.kmpnativefirst.task.reminder.TaskReminderScheduler
 import com.example.kmpnativefirst.task.data.TaskSyncPhase
 import com.example.kmpnativefirst.task.data.TaskSyncState
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.Res
@@ -189,8 +190,12 @@ import kotlin.time.Instant
 @Composable
 fun rememberTaskViewModel(
     repositoryFactory: suspend () -> TaskRepository,
+    reminderScheduler: TaskReminderScheduler? = null,
 ): TaskViewModel = viewModel {
-    TaskViewModel(repositoryFactory = repositoryFactory)
+    TaskViewModel(
+        reminderScheduler = reminderScheduler,
+        repositoryFactory = repositoryFactory,
+    )
 }
 
 @Composable

@@ -31,6 +31,7 @@ import com.example.kmpnativefirst.task.data.TaskSyncPhase
 import com.example.kmpnativefirst.task.data.TaskSyncResult
 import com.example.kmpnativefirst.task.data.TaskSyncState
 import com.example.kmpnativefirst.task.data.TaskSyncStatus
+import com.example.kmpnativefirst.task.reminder.TaskReminderScheduler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -522,6 +523,34 @@ class TaskViewModelTest {
         )
         assertEquals(2, notice.pushedCount)
         assertEquals(3, notice.pulledCount)
+        viewModel.viewModelScope.cancel()
+    }
+
+    @Test
+    fun reconcilesTheCompleteTaskSnapshotForReminderScheduling() = runTest(dispatcher) {
+        val repository = FakeTaskRepository(
+            initialTasks = listOf(
+                taskItem(id = "visible", title = "Visible"),
+                taskItem(id = "completed", title = "Completed", isCompleted = true),
+            ),
+        )
+        val snapshots = mutableListOf<List<String>>()
+        val viewModel = TaskViewModel(
+            timeZone = TimeZone.UTC,
+            todayProvider = { TODAY },
+            reminderScheduler = TaskReminderScheduler { tasks ->
+                snapshots += tasks.map { it.task.id }
+            },
+        ) {
+            repository
+        }
+        advanceUntilIdle()
+
+        assertEquals(listOf("visible", "completed"), snapshots.last())
+        repository.delete("completed")
+        advanceUntilIdle()
+        assertEquals(listOf("visible"), snapshots.last())
+
         viewModel.viewModelScope.cancel()
     }
 }

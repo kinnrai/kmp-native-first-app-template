@@ -25,6 +25,7 @@ import com.example.kmpnativefirst.task.data.TaskProjectItem
 import com.example.kmpnativefirst.task.data.TaskRepository
 import com.example.kmpnativefirst.task.data.TaskSyncResult
 import com.example.kmpnativefirst.task.data.TaskSyncStatus
+import com.example.kmpnativefirst.task.reminder.TaskReminderScheduler
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -41,6 +42,7 @@ import kotlin.time.Instant
 class TaskViewModel(
     private val timeZone: TimeZone = TimeZone.currentSystemDefault(),
     private val todayProvider: () -> LocalDate = { Clock.System.todayIn(timeZone) },
+    private val reminderScheduler: TaskReminderScheduler? = null,
     private val repositoryFactory: suspend () -> TaskRepository,
 ) : ViewModel() {
     private val mutableUiState = MutableStateFlow(TaskUiState())
@@ -650,6 +652,13 @@ class TaskViewModel(
     }
 
     private fun observeRepository(createdRepository: TaskRepository) {
+        reminderScheduler?.let { scheduler ->
+            viewModelScope.launch {
+                createdRepository.tasks.collect { tasks ->
+                    runCatching { scheduler.reconcile(tasks) }
+                }
+            }
+        }
         viewModelScope.launch {
             val projectContent = combine(
                 createdRepository.tasks,
