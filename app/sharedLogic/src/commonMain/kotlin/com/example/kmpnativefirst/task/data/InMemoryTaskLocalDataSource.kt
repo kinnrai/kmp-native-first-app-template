@@ -4,23 +4,30 @@ import com.example.kmpnativefirst.task.Task
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.serialization.Serializable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.time.Instant
 
 internal class InMemoryTaskLocalDataSource(
     initialTasks: List<Task> = emptyList(),
+    restoredState: TaskLocalState? = null,
+    private val persistState: suspend (TaskLocalState) -> Unit = {},
+    private val closeState: () -> Unit = {},
 ) : TaskLocalDataSource {
     private val mutex = Mutex()
-    private val records = initialTasks.associate { task ->
-        task.id to LocalTaskRecord(
-            task = task,
-            syncState = TaskSyncState.SYNCED,
-            isDeleted = false,
-        )
-    }.toMutableMap()
-    private val outbox = mutableMapOf<String, PendingTaskMutation>()
-    private val conflicts = mutableMapOf<String, TaskConflict>()
+    private val records = restoredState?.records?.toMutableMap()
+        ?: initialTasks.associate { task ->
+            task.id to LocalTaskRecord(
+                task = task,
+                syncState = TaskSyncState.SYNCED,
+                isDeleted = false,
+            )
+        }.toMutableMap()
+    private val outbox = restoredState?.outbox?.toMutableMap()
+        ?: mutableMapOf()
+    private val conflicts = restoredState?.conflicts?.toMutableMap()
+        ?: mutableMapOf()
     private val taskFlow = MutableStateFlow(visibleTasks())
     private val conflictFlow = MutableStateFlow(emptyList<TaskConflict>())
 
@@ -293,7 +300,9 @@ internal class InMemoryTaskLocalDataSource(
         conflicts.remove(taskId)
     }
 
-    override fun close() = Unit
+    override fun close() {
+        closeState()
+    }
 
     private fun enqueueResolution(
         conflict: TaskConflict,
@@ -362,13 +371,40 @@ internal class InMemoryTaskLocalDataSource(
 
     private suspend fun mutate(block: () -> Unit) {
         mutex.withLock {
-            block()
+            mutateAndPersist(block)
             publish()
         }
     }
 
     private suspend fun <T> mutateWithResult(block: () -> T): T = mutex.withLock {
-        block().also { publish() }
+        mutateAndPersist(block).also { publish() }
+    }
+
+    private suspend fun <T> mutateAndPersist(block: () -> T): T {
+        val before = currentState()
+        return try {
+            block().also {
+                persistState(currentState())
+            }
+        } catch (error: Throwable) {
+            restore(before)
+            throw error
+        }
+    }
+
+    private fun currentState(): TaskLocalState = TaskLocalState(
+        records = records.toMap(),
+        outbox = outbox.toMap(),
+        conflicts = conflicts.toMap(),
+    )
+
+    private fun restore(state: TaskLocalState) {
+        records.clear()
+        records.putAll(state.records)
+        outbox.clear()
+        outbox.putAll(state.outbox)
+        conflicts.clear()
+        conflicts.putAll(state.conflicts)
     }
 
     private fun publish() {
@@ -384,13 +420,21 @@ internal class InMemoryTaskLocalDataSource(
         .toList()
 }
 
-private data class LocalTaskRecord(
+@Serializable
+internal data class LocalTaskRecord(
     val task: Task,
     val syncState: TaskSyncState,
     val isDeleted: Boolean,
 ) {
     fun toTaskItem(): TaskItem = TaskItem(task, syncState)
 }
+
+@Serializable
+internal data class TaskLocalState(
+    val records: Map<String, LocalTaskRecord> = emptyMap(),
+    val outbox: Map<String, PendingTaskMutation> = emptyMap(),
+    val conflicts: Map<String, TaskConflict> = emptyMap(),
+)
 
 private fun Task.withEdit(edit: TaskEdit): Task = copy(
     title = edit.title,

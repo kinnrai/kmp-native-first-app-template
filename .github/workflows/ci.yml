@@ -88,6 +88,9 @@ jobs:
       - name: Install web dependencies
         run: npm ci
 
+      - name: Test web application
+        run: npm run test -w web-app
+
       - name: Build web application
         run: npm run build -w web-app
 
