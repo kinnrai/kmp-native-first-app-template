@@ -16,6 +16,8 @@ import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Instant
 
 class OfflineFirstTaskRepositoryTest {
     @Test
@@ -47,6 +49,43 @@ class OfflineFirstTaskRepositoryTest {
         )
 
         assertEquals(listOf(firstLabelId, secondLabelId), updated.labelIds)
+    }
+
+    @Test
+    fun persistsAndSynchronizesReminderTimes() = runTest {
+        val reminderAt = Instant.parse("2026-08-01T08:30:00Z")
+        val repository = OfflineFirstTaskRepository(
+            local = InMemoryTaskLocalDataSource(),
+            remote = FakeTaskRemoteDataSource(),
+            clock = AdvancingClock(),
+            idGenerator = SequentialIds()::next,
+        )
+
+        val created = repository.create(
+            TaskDraft(
+                title = "Plan release",
+                reminderAt = reminderAt,
+            ),
+        )
+        assertEquals(reminderAt, repository.tasks.first().single().task.reminderAt)
+
+        val updated = repository.update(
+            taskId = created.id,
+            edit = TaskEdit(
+                title = created.title,
+                reminderAt = reminderAt + 30.minutes,
+            ),
+        )
+        assertEquals(
+            reminderAt + 30.minutes,
+            updated.reminderAt,
+        )
+
+        repository.sync()
+        assertEquals(
+            updated.reminderAt,
+            repository.tasks.first().single().task.reminderAt,
+        )
     }
 
     @Test

@@ -5,6 +5,7 @@ import kotlinx.datetime.LocalDate
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.time.Instant
 
 class TaskMergeTest {
     @Test
@@ -50,6 +51,43 @@ class TaskMergeTest {
 
         assertEquals(LocalDate(2026, 8, 1), result.task.dueDate)
         assertEquals(TaskPriority.HIGH, result.task.priority)
+    }
+
+    @Test
+    fun mergesIndependentReminderChanges() {
+        val base = task()
+        val local = base.copy(
+            reminderAt = Instant.parse("2026-08-01T08:30:00Z"),
+        )
+        val remote = base.copy(
+            priority = TaskPriority.HIGH,
+            revision = 2,
+        )
+
+        val result = assertIs<TaskMergeResult.Merged>(
+            TaskMerge.merge(base, local, remote),
+        )
+
+        assertEquals(local.reminderAt, result.task.reminderAt)
+        assertEquals(TaskPriority.HIGH, result.task.priority)
+    }
+
+    @Test
+    fun reportsConflictingReminderChanges() {
+        val base = task()
+        val local = base.copy(
+            reminderAt = Instant.parse("2026-08-01T08:30:00Z"),
+        )
+        val remote = base.copy(
+            reminderAt = Instant.parse("2026-08-01T09:00:00Z"),
+            revision = 2,
+        )
+
+        val result = assertIs<TaskMergeResult.Conflict>(
+            TaskMerge.merge(base, local, remote),
+        )
+
+        assertEquals(setOf(TaskConflictField.REMINDER_AT), result.fields)
     }
 
     @Test

@@ -1363,6 +1363,7 @@ internal class SqlDelightTaskLocalDataSource(
             priority = task.priority.name,
             dueDate = task.dueDate?.toString(),
             dueAtEpochMillis = task.dueAt?.toEpochMilliseconds(),
+            reminderAtEpochMillis = task.reminderAt?.toEpochMilliseconds(),
             isCompleted = task.isCompleted,
             createdAtEpochMillis = task.createdAt.toEpochMilliseconds(),
             updatedAtEpochMillis = task.updatedAt.toEpochMilliseconds(),
@@ -1532,6 +1533,7 @@ private fun CachedTask.toTask(): Task = Task(
     priority = TaskPriority.valueOf(priority),
     dueDate = dueDate?.let(LocalDate::parse),
     dueAt = dueAtEpochMillis?.let(Instant::fromEpochMilliseconds),
+    reminderAt = reminderAtEpochMillis?.let(Instant::fromEpochMilliseconds),
     isCompleted = isCompleted,
     createdAt = Instant.fromEpochMilliseconds(createdAtEpochMillis),
     updatedAt = Instant.fromEpochMilliseconds(updatedAtEpochMillis),
@@ -1649,6 +1651,7 @@ private fun Task.withEdit(edit: TaskEdit): Task = copy(
     priority = edit.priority,
     dueDate = edit.dueDate,
     dueAt = edit.dueAt,
+    reminderAt = edit.reminderAt,
     isCompleted = edit.isCompleted,
 )
 

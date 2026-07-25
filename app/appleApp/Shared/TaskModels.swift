@@ -158,6 +158,7 @@ struct TaskRecord: Identifiable, Hashable {
   let priority: TaskPriorityValue
   let dueDate: TaskCalendarDate?
   let dueAt: Date?
+  let reminderAt: Date?
   let isCompleted: Bool
   let createdAt: Date
   let updatedAt: Date
@@ -183,6 +184,7 @@ struct TaskRecord: Identifiable, Hashable {
       dueDate = nil
     }
     dueAt = task.dueAt?.date
+    reminderAt = task.reminderAt?.date
     isCompleted = task.isCompleted
     createdAt = task.createdAt.date
     updatedAt = task.updatedAt.date
@@ -211,6 +213,7 @@ struct TaskEditorDraft: Equatable {
   var includesDueDate = false
   var selectedDueDate = Date()
   var preciseDueAt: Date?
+  var reminderAt: Date?
   var isCompleted = false
 
   init(
@@ -228,6 +231,7 @@ struct TaskEditorDraft: Equatable {
     includesDueDate = task.dueDate != nil || task.dueAt != nil
     selectedDueDate = task.dueDate?.date ?? task.dueAt ?? Date()
     preciseDueAt = task.dueDate == nil ? task.dueAt : nil
+    reminderAt = task.reminderAt
     isCompleted = task.isCompleted
   }
 
@@ -239,6 +243,10 @@ struct TaskEditorDraft: Equatable {
   var dueAt: SharedLogic.KotlinInstant? {
     guard includesDueDate else { return nil }
     return preciseDueAt?.kotlinInstant
+  }
+
+  var kotlinReminderAt: SharedLogic.KotlinInstant? {
+    reminderAt?.kotlinInstant
   }
 
   var normalizedTitle: String {

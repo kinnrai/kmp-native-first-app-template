@@ -1401,6 +1401,7 @@ private fun Task.withEdit(edit: TaskEdit): Task = copy(
     priority = edit.priority,
     dueDate = edit.dueDate,
     dueAt = edit.dueAt,
+    reminderAt = edit.reminderAt,
     isCompleted = edit.isCompleted,
 )
 

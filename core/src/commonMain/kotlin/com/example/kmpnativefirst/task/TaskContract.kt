@@ -14,6 +14,7 @@ data class CreateTaskRequest(
     val priority: TaskPriority = TaskPriority.NONE,
     val dueDate: LocalDate? = null,
     val dueAt: Instant? = null,
+    val reminderAt: Instant? = null,
 )
 
 @Serializable
@@ -25,6 +26,7 @@ data class ReplaceTaskRequest(
     val priority: TaskPriority = TaskPriority.NONE,
     val dueDate: LocalDate? = null,
     val dueAt: Instant? = null,
+    val reminderAt: Instant? = null,
     val isCompleted: Boolean = false,
     val expectedRevision: Long,
 )

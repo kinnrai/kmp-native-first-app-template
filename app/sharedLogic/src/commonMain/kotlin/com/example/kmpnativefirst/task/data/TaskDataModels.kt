@@ -15,6 +15,7 @@ data class TaskDraft(
     val priority: TaskPriority = TaskPriority.NONE,
     val dueDate: LocalDate? = null,
     val dueAt: Instant? = null,
+    val reminderAt: Instant? = null,
 )
 
 data class TaskEdit(
@@ -25,6 +26,7 @@ data class TaskEdit(
     val priority: TaskPriority = TaskPriority.NONE,
     val dueDate: LocalDate? = null,
     val dueAt: Instant? = null,
+    val reminderAt: Instant? = null,
     val isCompleted: Boolean = false,
 )
 
@@ -36,6 +38,7 @@ fun Task.toEdit(): TaskEdit = TaskEdit(
     priority = priority,
     dueDate = dueDate,
     dueAt = dueAt,
+    reminderAt = reminderAt,
     isCompleted = isCompleted,
 )
 
@@ -68,6 +71,7 @@ enum class TaskConflictField {
     PRIORITY,
     DUE_DATE,
     DUE_AT,
+    REMINDER_AT,
     COMPLETION,
 }
 

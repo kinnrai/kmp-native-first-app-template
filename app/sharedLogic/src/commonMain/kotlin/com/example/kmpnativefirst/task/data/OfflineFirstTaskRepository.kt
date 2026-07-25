@@ -73,6 +73,7 @@ internal class OfflineFirstTaskRepository(
             priority = draft.priority,
             dueDate = draft.dueDate,
             dueAt = draft.dueAt,
+            reminderAt = draft.reminderAt,
             createdAt = now,
             updatedAt = now,
             revision = 0,
@@ -111,6 +112,7 @@ internal class OfflineFirstTaskRepository(
             priority = edit.priority,
             dueDate = edit.dueDate,
             dueAt = edit.dueAt,
+            reminderAt = edit.reminderAt,
             isCompleted = edit.isCompleted,
             updatedAt = clock.now(),
         )

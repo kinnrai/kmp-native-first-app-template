@@ -58,6 +58,7 @@ class AppleTaskStore internal constructor(
         priority: TaskPriority,
         dueDate: LocalDate?,
         dueAt: Instant?,
+        reminderAt: Instant?,
         projectId: String?,
     ): Task = repository.create(
         TaskDraft(
@@ -67,6 +68,7 @@ class AppleTaskStore internal constructor(
             priority = priority,
             dueDate = dueDate,
             dueAt = dueAt,
+            reminderAt = reminderAt,
         ),
     )
 
@@ -78,6 +80,7 @@ class AppleTaskStore internal constructor(
         priority: TaskPriority,
         dueDate: LocalDate?,
         dueAt: Instant?,
+        reminderAt: Instant?,
         isCompleted: Boolean,
         projectId: String?,
     ): Task = repository.update(
@@ -89,6 +92,7 @@ class AppleTaskStore internal constructor(
             priority = priority,
             dueDate = dueDate,
             dueAt = dueAt,
+            reminderAt = reminderAt,
             isCompleted = isCompleted,
         ),
     )
@@ -125,6 +129,7 @@ class AppleTaskStore internal constructor(
         priority: TaskPriority,
         dueDate: LocalDate?,
         dueAt: Instant?,
+        reminderAt: Instant?,
         isCompleted: Boolean,
         projectId: String?,
     ) {
@@ -138,6 +143,7 @@ class AppleTaskStore internal constructor(
                     priority = priority,
                     dueDate = dueDate,
                     dueAt = dueAt,
+                    reminderAt = reminderAt,
                     isCompleted = isCompleted,
                 ),
             ),

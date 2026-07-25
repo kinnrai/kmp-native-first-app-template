@@ -32,6 +32,7 @@ class WebTaskStore(
     private val listeners = mutableSetOf<(WebTaskSnapshot) -> Unit>()
     private var repository: TaskRepository? = null
     private var latestTasks: List<TaskItem> = emptyList()
+    private var latestConflicts: List<TaskConflict> = emptyList()
     private var currentSnapshot = loadingWebTaskSnapshot()
 
     init {
@@ -50,6 +51,7 @@ class WebTaskStore(
                     createdRepository.syncStatus,
                 ) { tasks, conflicts, projects, projectConflicts, syncStatus ->
                     latestTasks = tasks
+                    latestConflicts = conflicts
                     WebTaskSnapshot(
                         isReady = true,
                         tasks = tasks.map(TaskItem::toWebTaskItem).toTypedArray(),
@@ -129,6 +131,10 @@ class WebTaskStore(
                 priority = priority.toTaskPriority(),
                 dueDate = dueDate.toLocalDateOrNull(),
                 dueAt = dueAt.toInstantOrNull(),
+                reminderAt = latestTasks
+                    .firstOrNull { it.task.id == taskId }
+                    ?.task
+                    ?.reminderAt,
                 isCompleted = isCompleted,
             ),
         )
@@ -174,6 +180,10 @@ class WebTaskStore(
                     priority = priority.toTaskPriority(),
                     dueDate = dueDate.toLocalDateOrNull(),
                     dueAt = dueAt.toInstantOrNull(),
+                    reminderAt = latestConflicts
+                        .firstOrNull { it.taskId == taskId }
+                        ?.let { conflict -> conflict.local ?: conflict.remote }
+                        ?.reminderAt,
                     isCompleted = isCompleted,
                 ),
             ),
@@ -344,6 +354,7 @@ class WebTask internal constructor(
     val createdAt: String,
     val updatedAt: String,
     val revision: String,
+    val reminderAt: String?,
 )
 
 @JsExport
@@ -474,6 +485,7 @@ private fun Task.toWebTask(): WebTask = WebTask(
     createdAt = createdAt.toString(),
     updatedAt = updatedAt.toString(),
     revision = revision.toString(),
+    reminderAt = reminderAt?.toString(),
 )
 
 internal fun TaskProject.toWebTaskProject(): WebTaskProject = WebTaskProject(

@@ -96,6 +96,7 @@ import com.example.kmpnativefirst.task.data.TaskLabelItem
 import com.example.kmpnativefirst.task.data.TaskProjectConflictResolution
 import com.example.kmpnativefirst.task.data.TaskProjectItem
 import com.example.kmpnativefirst.task.data.TaskRepository
+import com.example.kmpnativefirst.task.reminder.TaskReminderScheduler
 import com.example.kmpnativefirst.task.data.TaskSyncPhase
 import com.example.kmpnativefirst.task.data.TaskSyncState
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.Res
@@ -144,6 +145,7 @@ import kmpnativefirstapptemplate.app.sharedui.generated.resources.priority_low
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.priority_medium
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.priority_none
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.remove_due_date
+import kmpnativefirstapptemplate.app.sharedui.generated.resources.reminder_value
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.retry
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.review
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.save
@@ -188,8 +190,12 @@ import kotlin.time.Instant
 @Composable
 fun rememberTaskViewModel(
     repositoryFactory: suspend () -> TaskRepository,
+    reminderScheduler: TaskReminderScheduler? = null,
 ): TaskViewModel = viewModel {
-    TaskViewModel(repositoryFactory = repositoryFactory)
+    TaskViewModel(
+        reminderScheduler = reminderScheduler,
+        repositoryFactory = repositoryFactory,
+    )
 }
 
 @Composable
@@ -241,6 +247,7 @@ fun TaskApp(
             changeEditorProject = viewModel::setEditorProject,
             changeEditorPriority = viewModel::setEditorPriority,
             changeEditorDueDate = viewModel::setEditorDueDate,
+            changeEditorReminderAt = viewModel::setEditorReminderAt,
             changeEditorCompleted = viewModel::setEditorCompleted,
             changeEditorLabel = viewModel::setEditorLabel,
             saveEditor = viewModel::saveEditor,
@@ -578,6 +585,7 @@ private fun TaskContentScaffold(
                                 onProjectChange = actions.changeEditorProject,
                                 onPriorityChange = actions.changeEditorPriority,
                                 onDueDateChange = actions.changeEditorDueDate,
+                                onReminderChange = actions.changeEditorReminderAt,
                                 onCompletedChange = actions.changeEditorCompleted,
                                 onLabelChange = actions.changeEditorLabel,
                                 onSave = actions.saveEditor,
@@ -602,6 +610,7 @@ private fun TaskContentScaffold(
                     onProjectChange = actions.changeEditorProject,
                     onPriorityChange = actions.changeEditorPriority,
                     onDueDateChange = actions.changeEditorDueDate,
+                    onReminderChange = actions.changeEditorReminderAt,
                     onCompletedChange = actions.changeEditorCompleted,
                     onLabelChange = actions.changeEditorLabel,
                     onSave = actions.saveEditor,
@@ -979,6 +988,16 @@ private fun TaskSupportingText(
                     style = MaterialTheme.typography.labelMedium,
                 )
             }
+            task.reminderAt?.let {
+                Text(
+                    stringResource(
+                        Res.string.reminder_value,
+                        it.localDateTimeLabel(),
+                    ),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+            }
         }
     }
 }
@@ -1103,6 +1122,7 @@ private fun TaskEditorDialog(
     onProjectChange: (String?) -> Unit,
     onPriorityChange: (TaskPriority) -> Unit,
     onDueDateChange: (LocalDate?) -> Unit,
+    onReminderChange: (Instant?) -> Unit,
     onCompletedChange: (Boolean) -> Unit,
     onLabelChange: (String, Boolean) -> Unit,
     onSave: () -> Unit,
@@ -1129,6 +1149,7 @@ private fun TaskEditorDialog(
                 onProjectChange = onProjectChange,
                 onPriorityChange = onPriorityChange,
                 onDueDateChange = onDueDateChange,
+                onReminderChange = onReminderChange,
                 onCompletedChange = onCompletedChange,
                 onLabelChange = onLabelChange,
                 onSave = onSave,
@@ -1150,6 +1171,7 @@ private fun TaskEditor(
     onProjectChange: (String?) -> Unit,
     onPriorityChange: (TaskPriority) -> Unit,
     onDueDateChange: (LocalDate?) -> Unit,
+    onReminderChange: (Instant?) -> Unit,
     onCompletedChange: (Boolean) -> Unit,
     onLabelChange: (String, Boolean) -> Unit,
     onSave: () -> Unit,
@@ -1284,6 +1306,11 @@ private fun TaskEditor(
             }
         }
 
+        TaskReminderEditor(
+            editor = editor,
+            onReminderChange = onReminderChange,
+        )
+
         if (editor.isEditing) {
             Surface(
                 onClick = { onCompletedChange(!editor.isCompleted) },
@@ -1376,6 +1403,7 @@ private fun TaskEditor(
             DatePicker(state = pickerState)
         }
     }
+
 }
 
 @Composable
@@ -1497,6 +1525,8 @@ internal object TaskUiTags {
     const val EDITOR_TITLE = "task-editor-title"
     const val EDITOR_PROJECT = "task-editor-project"
     const val EDITOR_SAVE = "task-editor-save"
+    const val EDITOR_REMINDER = "task-editor-reminder"
+    const val EDITOR_REMINDER_TIME = "task-editor-reminder-time"
     const val NEW_PROJECT = "projects-new"
     const val PROJECT_EDITOR = "project-editor"
     const val PROJECT_EDITOR_NAME = "project-editor-name"

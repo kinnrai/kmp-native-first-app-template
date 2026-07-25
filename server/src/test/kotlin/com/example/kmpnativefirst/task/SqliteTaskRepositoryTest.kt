@@ -100,11 +100,13 @@ class SqliteTaskRepositoryTest {
             projectId = project.id,
             dueDate = dueDate,
             dueAt = null,
+            reminderAt = Instant.parse("2026-08-01T08:30:00Z"),
         )
 
         assertEquals(TaskInsertResult.Inserted(original), repository.insert(original))
         assertEquals(dueDate, repository.find(original.id)?.dueDate)
         assertEquals(project.id, repository.find(original.id)?.projectId)
+        assertEquals(original.reminderAt, repository.find(original.id)?.reminderAt)
     }
 
     @Test
@@ -276,6 +278,7 @@ class SqliteTaskRepositoryTest {
         title = "Persist me",
         priority = TaskPriority.MEDIUM,
         dueAt = Instant.parse("2026-08-01T09:00:00Z"),
+        reminderAt = Instant.parse("2026-08-01T08:30:00Z"),
         isCompleted = isCompleted,
         createdAt = Instant.parse("2026-07-23T10:00:00Z"),
         updatedAt = Instant.parse("2026-07-23T10:00:00Z"),

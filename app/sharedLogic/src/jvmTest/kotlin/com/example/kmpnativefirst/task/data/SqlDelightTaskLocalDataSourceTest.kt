@@ -12,6 +12,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Instant
 
 class SqlDelightTaskLocalDataSourceTest {
     @Test
@@ -62,6 +63,7 @@ class SqlDelightTaskLocalDataSourceTest {
                         projectId = PROJECT_ID,
                         labelIds = listOf(LABEL_ID),
                         dueDate = LocalDate(2026, 8, 1),
+                        reminderAt = Instant.parse("2026-08-01T08:30:00Z"),
                         revision = 0,
                     ),
                     operationId = "operation",
@@ -75,6 +77,10 @@ class SqlDelightTaskLocalDataSourceTest {
                 assertEquals(PROJECT_ID, item.task.projectId)
                 assertEquals(listOf(LABEL_ID), item.task.labelIds)
                 assertEquals(LocalDate(2026, 8, 1), item.task.dueDate)
+                assertEquals(
+                    Instant.parse("2026-08-01T08:30:00Z"),
+                    item.task.reminderAt,
+                )
                 assertEquals(TaskSyncState.PENDING, item.syncState)
                 assertEquals(TaskMutationKind.CREATE, reopened.nextMutation()?.kind)
                 assertEquals(1, reopened.pendingCount())

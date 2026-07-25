@@ -63,6 +63,7 @@ data class TaskEditorUiState(
     val priority: TaskPriority = TaskPriority.NONE,
     val dueDate: LocalDate? = null,
     val dueAt: Instant? = null,
+    val reminderAt: Instant? = null,
     val isCompleted: Boolean = false,
     val isSaving: Boolean = false,
     val showValidationErrors: Boolean = false,

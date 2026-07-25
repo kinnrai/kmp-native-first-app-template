@@ -14,7 +14,8 @@ CREATE TABLE cachedTask (
     isDeleted INTEGER AS Boolean NOT NULL,
     dueDate TEXT,
     projectId TEXT,
-    labelIdsJson TEXT NOT NULL DEFAULT '[]'
+    labelIdsJson TEXT NOT NULL DEFAULT '[]',
+    reminderAtEpochMillis INTEGER
 );
 
 CREATE TABLE taskOutbox (
@@ -140,9 +141,10 @@ INSERT OR REPLACE INTO cachedTask(
     isDeleted,
     dueDate,
     projectId,
-    labelIdsJson
+    labelIdsJson,
+    reminderAtEpochMillis
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 deleteTaskById:
 DELETE FROM cachedTask

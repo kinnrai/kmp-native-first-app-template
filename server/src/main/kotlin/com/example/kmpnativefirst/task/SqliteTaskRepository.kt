@@ -61,6 +61,7 @@ class SqliteTaskRepository private constructor(
             statement[priority] = task.priority.name
             statement[dueDate] = task.dueDate?.toString()
             statement[dueAtEpochMillis] = task.dueAt?.toEpochMilliseconds()
+            statement[reminderAtEpochMillis] = task.reminderAt?.toEpochMilliseconds()
             statement[isCompleted] = task.isCompleted
             statement[createdAtEpochMillis] = task.createdAt.toEpochMilliseconds()
             statement[updatedAtEpochMillis] = task.updatedAt.toEpochMilliseconds()
@@ -96,6 +97,7 @@ class SqliteTaskRepository private constructor(
             statement[priority] = task.priority.name
             statement[dueDate] = task.dueDate?.toString()
             statement[dueAtEpochMillis] = task.dueAt?.toEpochMilliseconds()
+            statement[reminderAtEpochMillis] = task.reminderAt?.toEpochMilliseconds()
             statement[isCompleted] = task.isCompleted
             statement[updatedAtEpochMillis] = task.updatedAt.toEpochMilliseconds()
             statement[revision] = task.revision
@@ -360,6 +362,9 @@ class SqliteTaskRepository private constructor(
                 if ("project_id" !in taskColumns) {
                     exec("ALTER TABLE tasks ADD COLUMN project_id VARCHAR(36)")
                 }
+                if ("reminder_at_epoch_millis" !in taskColumns) {
+                    exec("ALTER TABLE tasks ADD COLUMN reminder_at_epoch_millis BIGINT")
+                }
             }
             return SqliteTaskRepository(database)
         }
@@ -414,6 +419,7 @@ private object TasksTable : Table("tasks") {
     val priority = varchar("priority", length = 16)
     val dueDate = varchar("due_date", length = 10).nullable()
     val dueAtEpochMillis = long("due_at_epoch_millis").nullable()
+    val reminderAtEpochMillis = long("reminder_at_epoch_millis").nullable()
     val isCompleted = bool("is_completed")
     val createdAtEpochMillis = long("created_at_epoch_millis")
     val updatedAtEpochMillis = long("updated_at_epoch_millis")
@@ -498,6 +504,9 @@ private fun toTask(
     priority = TaskPriority.valueOf(row[TasksTable.priority]),
     dueDate = row[TasksTable.dueDate]?.let(LocalDate::parse),
     dueAt = row[TasksTable.dueAtEpochMillis]?.let(Instant::fromEpochMilliseconds),
+    reminderAt = row[TasksTable.reminderAtEpochMillis]?.let(
+        Instant::fromEpochMilliseconds,
+    ),
     isCompleted = row[TasksTable.isCompleted],
     createdAt = Instant.fromEpochMilliseconds(row[TasksTable.createdAtEpochMillis]),
     updatedAt = Instant.fromEpochMilliseconds(row[TasksTable.updatedAtEpochMillis]),

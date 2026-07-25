@@ -289,6 +289,34 @@ class TaskScreenUiTest {
             .assertIsDisplayed()
             .assertIsEnabled()
     }
+
+    @Test
+    fun opensReminderPickerFromTheTaskEditor() = runSkikoComposeUiTest(
+        size = Size(width = 412f, height = 915f),
+    ) {
+        var state by mutableStateOf(
+            TaskUiState(
+                isInitializing = false,
+                tasks = TASKS,
+                activeCount = TASKS.size,
+            ),
+        )
+
+        setContent {
+            TestTaskScreen(
+                state = state,
+                onStateChange = { state = it },
+            )
+        }
+
+        onNodeWithTag(TaskUiTags.NEW_TASK).performClick()
+        onNodeWithTag(TaskUiTags.EDITOR_REMINDER)
+            .performScrollTo()
+            .assertIsDisplayed()
+            .assertHasClickAction()
+            .performClick()
+        onNodeWithText("Reminder date").assertIsDisplayed()
+    }
 }
 
 @Composable
@@ -347,6 +375,11 @@ private fun TestTaskScreen(
                                 },
                             ),
                         ),
+                    )
+                },
+                changeEditorReminderAt = { reminderAt ->
+                    onStateChange(
+                        state.copy(editor = state.editor?.copy(reminderAt = reminderAt)),
                     )
                 },
                 saveEditor = onSave,

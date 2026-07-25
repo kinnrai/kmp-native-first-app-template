@@ -161,6 +161,7 @@ final class TaskStore {
         priority: draft.priority.kotlinValue,
         dueDate: draft.dueDate,
         dueAt: draft.dueAt,
+        reminderAt: draft.kotlinReminderAt,
         projectId: draft.projectID
       )
     }
@@ -179,6 +180,7 @@ final class TaskStore {
         priority: draft.priority.kotlinValue,
         dueDate: draft.dueDate,
         dueAt: draft.dueAt,
+        reminderAt: draft.kotlinReminderAt,
         isCompleted: draft.isCompleted,
         projectId: draft.projectID
       )
@@ -233,6 +235,7 @@ final class TaskStore {
         priority: draft.priority.kotlinValue,
         dueDate: draft.dueDate,
         dueAt: draft.dueAt,
+        reminderAt: draft.kotlinReminderAt,
         isCompleted: draft.isCompleted,
         projectId: draft.projectID
       )
