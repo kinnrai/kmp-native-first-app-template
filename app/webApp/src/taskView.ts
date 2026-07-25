@@ -28,6 +28,38 @@ export function instantToLocalDate(
   return localDateString(new Date(instant));
 }
 
+export function instantToLocalDateTime(
+  instant: string | null | undefined,
+): string {
+  if (!instant) return '';
+  const date = new Date(instant);
+  if (Number.isNaN(date.getTime())) return '';
+  const hours = date.getHours().toString().padStart(2, '0');
+  const minutes = date.getMinutes().toString().padStart(2, '0');
+  return `${localDateString(date)}T${hours}:${minutes}`;
+}
+
+export function localDateTimeToInstant(
+  value: string | null | undefined,
+): string | undefined {
+  if (!value) return undefined;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+}
+
+export function formatReminder(
+  instant: string | null | undefined,
+  locale?: string,
+): string | undefined {
+  if (!instant) return undefined;
+  const date = new Date(instant);
+  if (Number.isNaN(date.getTime())) return undefined;
+  return new Intl.DateTimeFormat(locale, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date);
+}
+
 export function localDateString(date: Date): string {
   const year = date.getFullYear().toString().padStart(4, '0');
   const month = (date.getMonth() + 1).toString().padStart(2, '0');

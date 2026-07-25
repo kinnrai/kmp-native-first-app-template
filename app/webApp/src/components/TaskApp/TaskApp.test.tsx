@@ -96,6 +96,7 @@ describe('TaskApp', () => {
       undefined,
       undefined,
       undefined,
+      undefined,
     );
   });
 
@@ -128,6 +129,7 @@ describe('TaskApp', () => {
       'Write launch copy',
       undefined,
       'none',
+      undefined,
       undefined,
       undefined,
       'project-1',
@@ -186,6 +188,7 @@ describe('TaskApp', () => {
       task.title,
       undefined,
       task.priority,
+      undefined,
       undefined,
       undefined,
       false,

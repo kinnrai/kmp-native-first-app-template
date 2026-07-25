@@ -98,6 +98,7 @@ class WebTaskStore(
         priority: String,
         dueDate: String?,
         dueAt: String?,
+        reminderAt: String?,
         projectId: String?,
     ) = runAction {
         create(
@@ -108,6 +109,7 @@ class WebTaskStore(
                 priority = priority.toTaskPriority(),
                 dueDate = dueDate.toLocalDateOrNull(),
                 dueAt = dueAt.toInstantOrNull(),
+                reminderAt = reminderAt.toInstantOrNull(),
             ),
         )
     }
@@ -119,6 +121,7 @@ class WebTaskStore(
         priority: String,
         dueDate: String?,
         dueAt: String?,
+        reminderAt: String?,
         isCompleted: Boolean,
         projectId: String?,
     ) = runAction {
@@ -131,10 +134,7 @@ class WebTaskStore(
                 priority = priority.toTaskPriority(),
                 dueDate = dueDate.toLocalDateOrNull(),
                 dueAt = dueAt.toInstantOrNull(),
-                reminderAt = latestTasks
-                    .firstOrNull { it.task.id == taskId }
-                    ?.task
-                    ?.reminderAt,
+                reminderAt = reminderAt.toInstantOrNull(),
                 isCompleted = isCompleted,
             ),
         )
@@ -167,6 +167,7 @@ class WebTaskStore(
         priority: String,
         dueDate: String?,
         dueAt: String?,
+        reminderAt: String?,
         isCompleted: Boolean,
         projectId: String?,
     ) = runAction {
@@ -180,10 +181,7 @@ class WebTaskStore(
                     priority = priority.toTaskPriority(),
                     dueDate = dueDate.toLocalDateOrNull(),
                     dueAt = dueAt.toInstantOrNull(),
-                    reminderAt = latestConflicts
-                        .firstOrNull { it.taskId == taskId }
-                        ?.let { conflict -> conflict.local ?: conflict.remote }
-                        ?.reminderAt,
+                    reminderAt = reminderAt.toInstantOrNull(),
                     isCompleted = isCompleted,
                 ),
             ),

@@ -36,6 +36,7 @@ describe('TaskEditorDialog', () => {
       priority: 'high',
       dueDate: '2026-07-25',
       dueAt: undefined,
+      reminderAt: undefined,
       isCompleted: false,
       projectId: undefined,
     });

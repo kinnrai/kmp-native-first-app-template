@@ -12,11 +12,19 @@ import type { TaskActions } from '../../taskActions.ts';
 import {
   formatDueDate,
   formatLastSynced,
+  formatReminder,
   isOverdue,
   localDateString,
   searchTasks,
 } from '../../taskView.ts';
 import type { TaskSmartView } from '../../taskView.ts';
+import {
+  getReminderPermission,
+  requestReminderPermission,
+  scheduleForegroundReminders,
+  showForegroundReminder,
+} from '../../reminders.ts';
+import type { WebReminderPermission } from '../../reminders.ts';
 import {
   AddIcon,
   CheckIcon,
@@ -82,6 +90,10 @@ export function TaskApp({
     useState<WebTaskProjectConflict>();
   const requestedInitialSync = useRef(false);
   const wasOnline = useRef(isOnline);
+  const [reminderPermission, setReminderPermission] =
+    useState<WebReminderPermission>(getReminderPermission);
+  const [reminderMessage, setReminderMessage] = useState<string>();
+  const notifiedReminders = useRef(new Set<string>());
 
   useEffect(() => {
     const reconnected = isOnline && !wasOnline.current;
@@ -129,6 +141,39 @@ export function TaskApp({
       setSelectedProjectId(undefined);
     }
   }, [selectedProjectId, snapshot.projects]);
+
+  useEffect(() => {
+    if (reminderPermission !== 'granted') return undefined;
+    return scheduleForegroundReminders(snapshot.tasks, (task) => {
+      const reminderKey = `${task.id}:${task.reminderAt}`;
+      if (notifiedReminders.current.has(reminderKey)) return;
+      notifiedReminders.current.add(reminderKey);
+      if (!showForegroundReminder(task)) {
+        setReminderMessage(
+          'This browser needs a service worker for persistent notifications. Background push is not configured yet.',
+        );
+      }
+    });
+  }, [reminderPermission, snapshot.tasks]);
+
+  const enableReminders = async () => {
+    const permission = await requestReminderPermission();
+    setReminderPermission(permission);
+    setReminderMessage(
+      permission === 'denied'
+        ? 'Notifications are blocked. Allow them in your browser settings to enable reminders.'
+        : permission === 'unsupported'
+          ? 'This browser does not support notifications.'
+          : undefined,
+    );
+  };
+  const reminderStatusMessage =
+    reminderMessage ??
+    (reminderPermission === 'denied'
+      ? 'Notifications are blocked. Allow them in your browser settings to enable reminders.'
+       : reminderPermission === 'unsupported'
+         ? 'This browser does not support notifications.'
+         : undefined);
 
   const today = localDateString(new Date());
   const timeZone =
@@ -203,6 +248,7 @@ export function TaskApp({
         values.priority,
         values.dueDate,
         values.dueAt,
+        values.reminderAt,
         values.isCompleted,
         values.projectId,
       );
@@ -213,6 +259,7 @@ export function TaskApp({
         values.priority,
         values.dueDate,
         values.dueAt,
+        values.reminderAt,
         values.projectId,
       );
     }
@@ -454,6 +501,24 @@ export function TaskApp({
               <span>Sync</span>
             </button>
             <button
+              className="button button-secondary reminder-button"
+              disabled={
+                reminderPermission === 'unsupported' ||
+                reminderPermission === 'denied' ||
+                reminderPermission === 'granted'
+              }
+              onClick={enableReminders}
+              type="button"
+            >
+              {reminderPermission === 'granted'
+                ? 'Reminders on'
+                : reminderPermission === 'denied'
+                  ? 'Reminders blocked'
+                  : reminderPermission === 'unsupported'
+                    ? 'Reminders unavailable'
+                    : 'Enable reminders'}
+            </button>
+            <button
               className="button button-primary add-button"
               disabled={!snapshot.isReady}
               onClick={() => setEditor({ mode: 'create' })}
@@ -471,6 +536,19 @@ export function TaskApp({
               detail="Changes remain in IndexedDB and will sync when this browser reconnects."
               kind="offline"
               title="You are offline"
+            />
+          )}
+
+          {reminderStatusMessage && (
+            <StatusBanner
+              action={
+                reminderPermission === 'denied' ? (
+                  <span className="status-note">Browser settings required</span>
+                ) : undefined
+              }
+              detail={reminderStatusMessage}
+              kind="offline"
+              title="Browser reminders"
             />
           )}
 
@@ -748,6 +826,11 @@ function TaskRow({
             <span className={isOverdue(task) ? 'due overdue' : 'due'}>
               {isOverdue(task) ? 'Overdue · ' : 'Due · '}
               {dueLabel}
+            </span>
+          )}
+          {task.reminderAt && (
+            <span className="reminder-meta">
+              Reminder · {formatReminder(task.reminderAt)}
             </span>
           )}
           {syncState !== 'synced' && (
