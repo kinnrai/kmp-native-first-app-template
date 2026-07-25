@@ -15,6 +15,7 @@ import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.jetbrains.exposed.v1.jdbc.update
 import java.nio.file.Files
 import java.nio.file.Path
+import kotlinx.datetime.LocalDate
 import kotlin.time.Instant
 
 class SqliteTaskRepository private constructor(
@@ -42,6 +43,7 @@ class SqliteTaskRepository private constructor(
             statement[title] = task.title
             statement[notes] = task.notes
             statement[priority] = task.priority.name
+            statement[dueDate] = task.dueDate?.toString()
             statement[dueAtEpochMillis] = task.dueAt?.toEpochMilliseconds()
             statement[isCompleted] = task.isCompleted
             statement[createdAtEpochMillis] = task.createdAt.toEpochMilliseconds()
@@ -68,6 +70,7 @@ class SqliteTaskRepository private constructor(
             statement[title] = task.title
             statement[notes] = task.notes
             statement[priority] = task.priority.name
+            statement[dueDate] = task.dueDate?.toString()
             statement[dueAtEpochMillis] = task.dueAt?.toEpochMilliseconds()
             statement[isCompleted] = task.isCompleted
             statement[updatedAtEpochMillis] = task.updatedAt.toEpochMilliseconds()
@@ -116,6 +119,16 @@ class SqliteTaskRepository private constructor(
             )
             transaction(database) {
                 SchemaUtils.create(TasksTable)
+                val taskColumns = exec("PRAGMA table_info(tasks)") { result ->
+                    buildSet {
+                        while (result.next()) {
+                            add(result.getString("name"))
+                        }
+                    }
+                }.orEmpty()
+                if ("due_date" !in taskColumns) {
+                    exec("ALTER TABLE tasks ADD COLUMN due_date VARCHAR(10)")
+                }
             }
             return SqliteTaskRepository(database)
         }
@@ -141,6 +154,7 @@ private object TasksTable : Table("tasks") {
     val title = varchar("title", length = TaskConstraints.MAX_TITLE_LENGTH)
     val notes = text("notes").nullable()
     val priority = varchar("priority", length = 16)
+    val dueDate = varchar("due_date", length = 10).nullable()
     val dueAtEpochMillis = long("due_at_epoch_millis").nullable()
     val isCompleted = bool("is_completed")
     val createdAtEpochMillis = long("created_at_epoch_millis")
@@ -155,6 +169,7 @@ private fun toTask(row: ResultRow): Task = Task(
     title = row[TasksTable.title],
     notes = row[TasksTable.notes],
     priority = TaskPriority.valueOf(row[TasksTable.priority]),
+    dueDate = row[TasksTable.dueDate]?.let(LocalDate::parse),
     dueAt = row[TasksTable.dueAtEpochMillis]?.let(Instant::fromEpochMilliseconds),
     isCompleted = row[TasksTable.isCompleted],
     createdAt = Instant.fromEpochMilliseconds(row[TasksTable.createdAtEpochMillis]),

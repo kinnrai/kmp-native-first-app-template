@@ -1,6 +1,8 @@
 package com.example.kmpnativefirst.task
 
 import kotlinx.coroutines.runBlocking
+import kotlinx.datetime.LocalDate
+import java.sql.DriverManager
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -54,6 +56,39 @@ class SqliteTaskRepositoryTest {
         assertEquals(1, repository.deleteCompleted())
         assertNotNull(repository.find("active"))
         assertNull(repository.find("done"))
+    }
+
+    @Test
+    fun migratesLegacyTaskTableBeforePersistingDateOnlyDeadlines() = runBlocking {
+        val databaseFile = Files.createTempDirectory("task-repository-migration-test")
+            .resolve("tasks.db")
+        val jdbcUrl = "jdbc:sqlite:$databaseFile"
+        DriverManager.getConnection(jdbcUrl).use { connection ->
+            connection.createStatement().use { statement ->
+                statement.execute(
+                    """
+                    CREATE TABLE tasks (
+                        id VARCHAR(36) NOT NULL PRIMARY KEY,
+                        title VARCHAR(120) NOT NULL,
+                        notes TEXT,
+                        priority VARCHAR(16) NOT NULL,
+                        due_at_epoch_millis BIGINT,
+                        is_completed BOOLEAN NOT NULL,
+                        created_at_epoch_millis BIGINT NOT NULL,
+                        updated_at_epoch_millis BIGINT NOT NULL,
+                        revision BIGINT NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        val repository = SqliteTaskRepository.open(jdbcUrl)
+        val dueDate = LocalDate(2026, 8, 1)
+        val original = task().copy(dueDate = dueDate, dueAt = null)
+
+        assertEquals(TaskInsertResult.Inserted(original), repository.insert(original))
+        assertEquals(dueDate, repository.find(original.id)?.dueDate)
     }
 
     private fun task(

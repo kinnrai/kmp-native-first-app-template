@@ -1,5 +1,6 @@
 package com.example.kmpnativefirst.task
 
+import kotlinx.datetime.LocalDate
 import kotlinx.serialization.Serializable
 import kotlin.time.Instant
 
@@ -9,6 +10,7 @@ data class CreateTaskRequest(
     val title: String,
     val notes: String? = null,
     val priority: TaskPriority = TaskPriority.NONE,
+    val dueDate: LocalDate? = null,
     val dueAt: Instant? = null,
 )
 
@@ -17,6 +19,7 @@ data class ReplaceTaskRequest(
     val title: String,
     val notes: String? = null,
     val priority: TaskPriority = TaskPriority.NONE,
+    val dueDate: LocalDate? = null,
     val dueAt: Instant? = null,
     val isCompleted: Boolean = false,
     val expectedRevision: Long,

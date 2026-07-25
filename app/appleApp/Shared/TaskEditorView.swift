@@ -46,8 +46,14 @@ struct TaskEditorView: View {
           if draft.includesDueDate {
             DatePicker(
               "Due",
-              selection: $draft.dueAt,
-              displayedComponents: [.date, .hourAndMinute]
+              selection: Binding(
+                get: { draft.selectedDueDate },
+                set: { date in
+                  draft.selectedDueDate = date
+                  draft.preciseDueAt = nil
+                }
+              ),
+              displayedComponents: .date
             )
           }
 

@@ -2,12 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { WebTask, WebTaskConflict, WebTaskItem, WebTaskSnapshot } from 'shared-logic';
 import type { TaskActions } from '../../taskActions.ts';
 import {
-  filterTasks,
   formatDueDate,
   formatLastSynced,
   isOverdue,
+  localDateString,
+  searchTasks,
 } from '../../taskView.ts';
-import type { TaskFilter } from '../../taskView.ts';
+import type { TaskSmartView } from '../../taskView.ts';
 import {
   AddIcon,
   CheckIcon,
@@ -34,9 +35,11 @@ type EditorState =
   | { mode: 'create' }
   | { mode: 'edit'; task: WebTask };
 
-const filters: Array<{ value: TaskFilter; label: string }> = [
+const filters: Array<{ value: TaskSmartView; label: string }> = [
   { value: 'all', label: 'All tasks' },
-  { value: 'active', label: 'Active' },
+  { value: 'inbox', label: 'Inbox' },
+  { value: 'today', label: 'Today' },
+  { value: 'upcoming', label: 'Upcoming' },
   { value: 'completed', label: 'Completed' },
 ];
 
@@ -45,7 +48,7 @@ export function TaskApp({
   isOnline,
   snapshot,
 }: TaskAppProps) {
-  const [filter, setFilter] = useState<TaskFilter>('all');
+  const [filter, setFilter] = useState<TaskSmartView>('inbox');
   const [query, setQuery] = useState('');
   const [editor, setEditor] = useState<EditorState>();
   const [selectedConflict, setSelectedConflict] =
@@ -77,20 +80,28 @@ export function TaskApp({
     }
   }, [selectedConflict, snapshot.conflicts]);
 
-  const counts = useMemo(() => {
-    const completed = snapshot.tasks.filter(
-      ({ task }) => task.isCompleted,
-    ).length;
-    return {
-      all: snapshot.tasks.length,
-      active: snapshot.tasks.length - completed,
-      completed,
-    };
-  }, [snapshot.tasks]);
+  const today = localDateString(new Date());
+  const timeZone =
+    Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+
+  const counts = useMemo(
+    () =>
+      Object.fromEntries(
+        filters.map(({ value }) => [
+          value,
+          actions.plannedTasks(value, today, timeZone).length,
+        ]),
+      ) as Record<TaskSmartView, number>,
+    [actions, snapshot.tasks, timeZone, today],
+  );
 
   const visibleTasks = useMemo(
-    () => filterTasks(snapshot.tasks, filter, query),
-    [filter, query, snapshot.tasks],
+    () =>
+      searchTasks(
+        actions.plannedTasks(filter, today, timeZone),
+        query,
+      ),
+    [actions, filter, query, snapshot.tasks, timeZone, today],
   );
 
   const clearableCompletedCount = snapshot.tasks.filter(
@@ -104,6 +115,7 @@ export function TaskApp({
         values.title,
         values.notes,
         values.priority,
+        values.dueDate,
         values.dueAt,
         values.isCompleted,
       );
@@ -112,6 +124,7 @@ export function TaskApp({
         values.title,
         values.notes,
         values.priority,
+        values.dueDate,
         values.dueAt,
       );
     }
@@ -353,7 +366,7 @@ function TaskRow({
 }: TaskRowProps) {
   const { task, syncState } = item;
   const hasConflict = syncState === 'conflict';
-  const dueLabel = formatDueDate(task.dueAt);
+  const dueLabel = formatDueDate(task.dueDate, task.dueAt);
 
   const deleteTask = () => {
     if (window.confirm(`Delete “${task.title}”?`)) {
@@ -519,7 +532,7 @@ function TaskListSkeleton() {
 }
 
 interface EmptyStateProps {
-  filter: TaskFilter;
+  filter: TaskSmartView;
   hasQuery: boolean;
 }
 
@@ -528,9 +541,13 @@ function EmptyState({ filter, hasQuery }: EmptyStateProps) {
     ? 'Try a different title or note.'
     : filter === 'completed'
       ? 'Completed tasks will appear here.'
-      : filter === 'active'
-        ? 'Everything is complete. Nicely done.'
-        : 'Create a task to start planning your work.';
+      : filter === 'inbox'
+        ? 'Unscheduled tasks will wait here until you plan them.'
+        : filter === 'today'
+          ? 'Tasks due today and overdue tasks will appear here.'
+          : filter === 'upcoming'
+            ? 'Future tasks will appear here.'
+            : 'Create a task to start planning your work.';
 
   return (
     <div className="empty-state">

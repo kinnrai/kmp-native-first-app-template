@@ -1,6 +1,7 @@
 package com.example.kmpnativefirst.task
 
 import kotlinx.coroutines.runBlocking
+import kotlinx.datetime.LocalDate
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -92,6 +93,41 @@ class TaskServiceTest {
 
         assertEquals(
             listOf(TaskValidationIssue(TaskField.TITLE, TaskValidationCode.REQUIRED)),
+            exception.issues,
+        )
+    }
+
+    @Test
+    fun preservesDateOnlyDeadlinesAndRejectsAmbiguousSchedules() = runBlocking {
+        val service = taskService()
+        val dueDate = LocalDate(2026, 8, 1)
+
+        val created = service.create(
+            CreateTaskRequest(
+                id = TASK_ID,
+                title = "Plan release",
+                dueDate = dueDate,
+            ),
+        )
+
+        assertEquals(dueDate, created.dueDate)
+        assertNull(created.dueAt)
+        val exception = assertFailsWith<TaskValidationException> {
+            service.replace(
+                id = created.id,
+                request = ReplaceTaskRequest(
+                    title = created.title,
+                    dueDate = dueDate,
+                    dueAt = Instant.parse("2026-08-01T09:00:00Z"),
+                    expectedRevision = created.revision,
+                ),
+            )
+        }
+        assertEquals(
+            listOf(
+                TaskValidationIssue(TaskField.DUE_DATE, TaskValidationCode.INVALID),
+                TaskValidationIssue(TaskField.DUE_AT, TaskValidationCode.INVALID),
+            ),
             exception.issues,
         )
     }

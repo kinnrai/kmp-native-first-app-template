@@ -21,7 +21,7 @@ struct ContentView: View {
   @Environment(TaskStore.self) private var store
   @Environment(MacTaskCommandModel.self) private var commands
 
-  @State private var filter = TaskListFilter.active
+  @State private var filter = TaskListFilter.inbox
   @State private var searchText = ""
   @State private var editor: TaskEditorPresentation?
   @State private var isConfirmingClearCompleted = false

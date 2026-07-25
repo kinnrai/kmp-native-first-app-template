@@ -15,6 +15,7 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runComposeUiTest
 import com.example.kmpnativefirst.task.Task
 import com.example.kmpnativefirst.task.TaskPriority
+import com.example.kmpnativefirst.task.TaskSmartView
 import com.example.kmpnativefirst.task.data.TaskItem
 import com.example.kmpnativefirst.task.data.TaskSyncState
 import kotlin.test.Test
@@ -104,8 +105,8 @@ private fun TestTaskScreen(
                 changeSearchQuery = {
                     onStateChange(state.copy(searchQuery = it))
                 },
-                changeFilter = {
-                    onStateChange(state.copy(filter = it))
+                changeView = {
+                    onStateChange(state.copy(view = it))
                 },
                 createTask = {
                     onStateChange(state.copy(editor = TaskEditorUiState()))

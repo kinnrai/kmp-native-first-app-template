@@ -1,7 +1,9 @@
 package com.example.kmpnativefirst.task
 
+import kotlinx.datetime.LocalDate
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 object TaskConstraints {
@@ -19,6 +21,12 @@ enum class TaskField {
 
     @SerialName("notes")
     NOTES,
+
+    @SerialName("dueDate")
+    DUE_DATE,
+
+    @SerialName("dueAt")
+    DUE_AT,
 
     @SerialName("expectedRevision")
     EXPECTED_REVISION,
@@ -58,6 +66,8 @@ object TaskValidator {
     fun validate(
         title: String,
         notes: String?,
+        dueDate: LocalDate? = null,
+        dueAt: Instant? = null,
         expectedRevision: Long? = null,
     ): List<TaskValidationIssue> {
         val input = normalize(title, notes)
@@ -72,6 +82,11 @@ object TaskValidator {
                 add(TaskValidationIssue(TaskField.NOTES, TaskValidationCode.TOO_LONG))
             }
 
+            if (dueDate != null && dueAt != null) {
+                add(TaskValidationIssue(TaskField.DUE_DATE, TaskValidationCode.INVALID))
+                add(TaskValidationIssue(TaskField.DUE_AT, TaskValidationCode.INVALID))
+            }
+
             if (expectedRevision != null) {
                 addAll(validateRevision(expectedRevision))
             }
@@ -82,11 +97,20 @@ object TaskValidator {
         id: String,
         title: String,
         notes: String?,
+        dueDate: LocalDate? = null,
+        dueAt: Instant? = null,
     ): List<TaskValidationIssue> = buildList {
         if (Uuid.parseOrNull(id) == null) {
             add(TaskValidationIssue(TaskField.ID, TaskValidationCode.INVALID))
         }
-        addAll(validate(title, notes))
+        addAll(
+            validate(
+                title = title,
+                notes = notes,
+                dueDate = dueDate,
+                dueAt = dueAt,
+            ),
+        )
     }
 
     fun validateRevision(expectedRevision: Long): List<TaskValidationIssue> =

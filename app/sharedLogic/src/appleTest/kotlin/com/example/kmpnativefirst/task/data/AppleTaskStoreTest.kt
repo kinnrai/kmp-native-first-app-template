@@ -2,6 +2,7 @@ package com.example.kmpnativefirst.task.data
 
 import com.example.kmpnativefirst.task.Task
 import com.example.kmpnativefirst.task.TaskPriority
+import com.example.kmpnativefirst.task.TaskSmartView
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -9,6 +10,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.datetime.LocalDate
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -53,13 +55,15 @@ class AppleTaskStoreTest {
             title = "Plan release",
             notes = "From Swift",
             priority = TaskPriority.HIGH,
-            dueAt = TEST_INSTANT,
+            dueDate = LocalDate(2026, 7, 24),
+            dueAt = null,
         )
         store.update(
             taskId = TASK_ID_1,
             title = "Ship release",
             notes = null,
             priority = TaskPriority.MEDIUM,
+            dueDate = null,
             dueAt = null,
             isCompleted = true,
         )
@@ -69,7 +73,8 @@ class AppleTaskStoreTest {
                 title = "Plan release",
                 notes = "From Swift",
                 priority = TaskPriority.HIGH,
-                dueAt = TEST_INSTANT,
+                dueDate = LocalDate(2026, 7, 24),
+                dueAt = null,
             ),
             repository.createdDraft,
         )
@@ -78,11 +83,49 @@ class AppleTaskStoreTest {
                 title = "Ship release",
                 notes = null,
                 priority = TaskPriority.MEDIUM,
+                dueDate = null,
                 dueAt = null,
                 isCompleted = true,
             ),
             repository.updatedEdit,
         )
+    }
+
+    @Test
+    fun projectsSmartViewsWithSharedPlanningRules() = runTest {
+        val repository = RecordingTaskRepository()
+        val store = AppleTaskStore(
+            repository = repository,
+            dispatcher = StandardTestDispatcher(testScheduler),
+        )
+        val observation = store.observe {}
+        repository.taskItems.value = listOf(
+            TaskItem(
+                task(title = "Inbox"),
+                TaskSyncState.SYNCED,
+            ),
+            TaskItem(
+                task(
+                    id = TASK_ID_1,
+                    title = "Today",
+                    dueDate = LocalDate(2026, 7, 24),
+                ),
+                TaskSyncState.PENDING,
+            ),
+        )
+        runCurrent()
+
+        assertEquals(
+            listOf("Today"),
+            store.plannedTasks(
+                view = TaskSmartView.TODAY,
+                todayYear = 2026,
+                todayMonth = 7,
+                todayDay = 24,
+                timeZoneId = "Asia/Shanghai",
+            ).map { it.task.title },
+        )
+        observation.cancel()
     }
 
     @Test

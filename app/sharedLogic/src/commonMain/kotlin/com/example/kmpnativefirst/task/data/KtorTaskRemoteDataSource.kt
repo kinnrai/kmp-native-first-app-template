@@ -56,6 +56,7 @@ internal class KtorTaskRemoteDataSource(
                     title = task.title,
                     notes = task.notes,
                     priority = task.priority,
+                    dueDate = task.dueDate,
                     dueAt = task.dueAt,
                 ),
             )
@@ -72,6 +73,7 @@ internal class KtorTaskRemoteDataSource(
                     title = task.title,
                     notes = task.notes,
                     priority = task.priority,
+                    dueDate = task.dueDate,
                     dueAt = task.dueAt,
                     isCompleted = task.isCompleted,
                     expectedRevision = task.revision,

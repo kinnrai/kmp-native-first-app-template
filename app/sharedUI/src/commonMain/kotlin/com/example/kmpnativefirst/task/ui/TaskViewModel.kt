@@ -2,8 +2,9 @@ package com.example.kmpnativefirst.task.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.kmpnativefirst.task.TaskFilter
+import com.example.kmpnativefirst.task.TaskPlanning
 import com.example.kmpnativefirst.task.TaskPriority
+import com.example.kmpnativefirst.task.TaskSmartView
 import com.example.kmpnativefirst.task.data.TaskConflictResolution
 import com.example.kmpnativefirst.task.data.TaskDraft
 import com.example.kmpnativefirst.task.data.TaskEdit
@@ -18,9 +19,15 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.TimeZone
+import kotlin.time.Clock
 import kotlin.time.Instant
+import kotlinx.datetime.todayIn
 
 class TaskViewModel(
+    private val timeZone: TimeZone = TimeZone.currentSystemDefault(),
+    private val todayProvider: () -> LocalDate = { Clock.System.todayIn(timeZone) },
     private val repositoryFactory: suspend () -> TaskRepository,
 ) : ViewModel() {
     private val mutableUiState = MutableStateFlow(TaskUiState())
@@ -40,8 +47,8 @@ class TaskViewModel(
         initialize()
     }
 
-    fun setFilter(filter: TaskFilter) {
-        listPreferences.update { it.copy(filter = filter) }
+    fun setView(view: TaskSmartView) {
+        listPreferences.update { it.copy(view = view) }
     }
 
     fun setSearchQuery(query: String) {
@@ -63,6 +70,7 @@ class TaskViewModel(
                     title = task.title,
                     notes = task.notes.orEmpty(),
                     priority = task.priority,
+                    dueDate = TaskPlanning.dueDate(task, timeZone),
                     dueAt = task.dueAt,
                     isCompleted = task.isCompleted,
                 ),
@@ -89,8 +97,13 @@ class TaskViewModel(
         updateEditor { copy(priority = priority) }
     }
 
-    fun setEditorDueAt(dueAt: Instant?) {
-        updateEditor { copy(dueAt = dueAt) }
+    fun setEditorDueDate(dueDate: LocalDate?) {
+        updateEditor {
+            copy(
+                dueDate = dueDate,
+                dueAt = null,
+            )
+        }
     }
 
     fun setEditorCompleted(isCompleted: Boolean) {
@@ -114,6 +127,7 @@ class TaskViewModel(
                             title = editor.title,
                             notes = editor.notes,
                             priority = editor.priority,
+                            dueDate = editor.dueDate,
                             dueAt = editor.dueAt,
                         ),
                     )
@@ -124,6 +138,7 @@ class TaskViewModel(
                             title = editor.title,
                             notes = editor.notes,
                             priority = editor.priority,
+                            dueDate = editor.dueDate.takeIf { editor.dueAt == null },
                             dueAt = editor.dueAt,
                             isCompleted = editor.isCompleted,
                         ),
@@ -298,8 +313,12 @@ class TaskViewModel(
             ) { tasks, conflicts, syncStatus, preferences ->
                 latestTasks = tasks
                 TaskListSnapshot(
-                    tasks = tasks.visibleFor(preferences),
-                    filter = preferences.filter,
+                    tasks = tasks.visibleFor(
+                        preferences = preferences,
+                        today = todayProvider(),
+                        timeZone = timeZone,
+                    ),
+                    view = preferences.view,
                     searchQuery = preferences.searchQuery,
                     activeCount = tasks.count { !it.task.isCompleted },
                     completedCount = tasks.count { it.task.isCompleted },
@@ -310,7 +329,7 @@ class TaskViewModel(
                 mutableUiState.update { current ->
                     current.copy(
                         tasks = snapshot.tasks,
-                        filter = snapshot.filter,
+                        view = snapshot.view,
                         searchQuery = snapshot.searchQuery,
                         activeCount = snapshot.activeCount,
                         completedCount = snapshot.completedCount,
@@ -371,13 +390,13 @@ class TaskViewModel(
 }
 
 private data class TaskListPreferences(
-    val filter: TaskFilter = TaskFilter.ALL,
+    val view: TaskSmartView = TaskSmartView.INBOX,
     val searchQuery: String = "",
 )
 
 private data class TaskListSnapshot(
     val tasks: List<TaskItem>,
-    val filter: TaskFilter,
+    val view: TaskSmartView,
     val searchQuery: String,
     val activeCount: Int,
     val completedCount: Int,
@@ -385,17 +404,24 @@ private data class TaskListSnapshot(
     val syncStatus: TaskSyncStatus,
 )
 
-private fun List<TaskItem>.visibleFor(preferences: TaskListPreferences): List<TaskItem> {
+private fun List<TaskItem>.visibleFor(
+    preferences: TaskListPreferences,
+    today: LocalDate,
+    timeZone: TimeZone,
+): List<TaskItem> {
     val normalizedQuery = preferences.searchQuery.trim()
-    return filter { item ->
-        val matchesFilter = when (preferences.filter) {
-            TaskFilter.ALL -> true
-            TaskFilter.ACTIVE -> !item.task.isCompleted
-            TaskFilter.COMPLETED -> item.task.isCompleted
-        }
+    val itemsById = associateBy { it.task.id }
+    return TaskPlanning.select(
+        tasks = map(TaskItem::task),
+        view = preferences.view,
+        today = today,
+        timeZone = timeZone,
+    ).mapNotNull { task ->
+        itemsById[task.id]
+    }.filter { item ->
         val matchesQuery = normalizedQuery.isEmpty() ||
             item.task.title.contains(normalizedQuery, ignoreCase = true) ||
             item.task.notes?.contains(normalizedQuery, ignoreCase = true) == true
-        matchesFilter && matchesQuery
+        matchesQuery
     }
 }

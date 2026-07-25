@@ -62,6 +62,15 @@ struct TaskConflictView: View {
             .lineLimit(4)
         }
         LabeledContent("Priority", value: task.priority.title)
+        if let dueDate = task.dueDate {
+          LabeledContent("Due") {
+            Text(dueDate.date, format: .dateTime.year().month().day())
+          }
+        } else if let dueAt = task.dueAt {
+          LabeledContent("Due") {
+            Text(dueAt, format: .dateTime.year().month().day().hour().minute())
+          }
+        }
         LabeledContent(
           "Status",
           value: task.isCompleted ? "Completed" : "Active"

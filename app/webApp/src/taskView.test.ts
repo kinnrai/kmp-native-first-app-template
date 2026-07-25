@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { WebTask, WebTaskItem } from 'shared-logic';
 import {
-  filterTasks,
-  fromDateTimeLocal,
+  formatDueDate,
+  instantToLocalDate,
   isOverdue,
-  toDateTimeLocal,
+  searchTasks,
 } from './taskView.ts';
 
 function item(
@@ -12,6 +12,7 @@ function item(
   title: string,
   options: {
     completed?: boolean;
+    dueDate?: string;
     dueAt?: string;
     notes?: string;
   } = {},
@@ -21,6 +22,7 @@ function item(
     title,
     notes: options.notes,
     priority: 'none',
+    dueDate: options.dueDate,
     dueAt: options.dueAt,
     isCompleted: options.completed ?? false,
     createdAt: '2026-07-24T00:00:00Z',
@@ -34,22 +36,25 @@ function item(
 }
 
 describe('task view helpers', () => {
-  it('filters completion state and searches titles or notes', () => {
+  it('searches titles or notes inside an already planned view', () => {
     const tasks = [
       item('1', 'Plan release', { notes: 'Coordinate the team' }),
       item('2', 'Buy groceries', { completed: true }),
     ];
 
-    expect(filterTasks(tasks, 'active', '')).toEqual([tasks[0]]);
-    expect(filterTasks(tasks, 'completed', '')).toEqual([tasks[1]]);
-    expect(filterTasks(tasks, 'all', 'TEAM')).toEqual([tasks[0]]);
-    expect(filterTasks(tasks, 'all', 'missing')).toEqual([]);
+    expect(searchTasks(tasks, '')).toEqual(tasks);
+    expect(searchTasks(tasks, 'TEAM')).toEqual([tasks[0]]);
+    expect(searchTasks(tasks, 'missing')).toEqual([]);
   });
 
-  it('round-trips a browser-local date through an API instant', () => {
-    const localValue = '2026-07-24T09:30';
+  it('projects precise instants into the browser calendar date', () => {
+    expect(instantToLocalDate('2026-07-24T09:30:00Z')).toBe('2026-07-24');
+  });
 
-    expect(toDateTimeLocal(fromDateTimeLocal(localValue))).toBe(localValue);
+  it('formats date-only deadlines without converting through UTC', () => {
+    expect(formatDueDate('2026-07-24', undefined, 'en-US')).toBe(
+      'Jul 24, 2026',
+    );
   });
 
   it('only marks active past-due tasks as overdue', () => {
@@ -60,5 +65,8 @@ describe('task view helpers', () => {
     expect(
       isOverdue(item('2', 'Done', { completed: true, dueAt }).task, now),
     ).toBe(false);
+    expect(
+      isOverdue(item('3', 'Calendar late', { dueDate: '2026-07-23' }).task, now),
+    ).toBe(true);
   });
 });

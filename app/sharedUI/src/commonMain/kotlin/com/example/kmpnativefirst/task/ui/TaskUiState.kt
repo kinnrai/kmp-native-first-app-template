@@ -1,18 +1,19 @@
 package com.example.kmpnativefirst.task.ui
 
-import com.example.kmpnativefirst.task.TaskFilter
 import com.example.kmpnativefirst.task.TaskPriority
+import com.example.kmpnativefirst.task.TaskSmartView
 import com.example.kmpnativefirst.task.TaskConstraints
 import com.example.kmpnativefirst.task.data.TaskConflict
 import com.example.kmpnativefirst.task.data.TaskItem
 import com.example.kmpnativefirst.task.data.TaskSyncStatus
+import kotlinx.datetime.LocalDate
 import kotlin.time.Instant
 
 data class TaskUiState(
     val isInitializing: Boolean = true,
     val initializationError: String? = null,
     val tasks: List<TaskItem> = emptyList(),
-    val filter: TaskFilter = TaskFilter.ALL,
+    val view: TaskSmartView = TaskSmartView.INBOX,
     val searchQuery: String = "",
     val activeCount: Int = 0,
     val completedCount: Int = 0,
@@ -30,6 +31,7 @@ data class TaskEditorUiState(
     val title: String = "",
     val notes: String = "",
     val priority: TaskPriority = TaskPriority.NONE,
+    val dueDate: LocalDate? = null,
     val dueAt: Instant? = null,
     val isCompleted: Boolean = false,
     val isSaving: Boolean = false,

@@ -15,6 +15,7 @@ function actions(): TaskActions {
     keepLocal: vi.fn(),
     useRemote: vi.fn(),
     mergeConflict: vi.fn(),
+    plannedTasks: vi.fn(() => []),
     sync: vi.fn(),
     clearActionError: vi.fn(),
   };
@@ -58,6 +59,7 @@ describe('TaskApp', () => {
       'Review pull request',
       undefined,
       'none',
+      undefined,
       undefined,
     );
   });

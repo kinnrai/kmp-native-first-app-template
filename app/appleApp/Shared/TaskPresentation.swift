@@ -70,13 +70,13 @@ struct TaskRow: View {
             Label(task.priority.title, systemImage: task.priority.systemImage)
               .foregroundStyle(task.priority.color)
           }
-          if let dueAt = task.dueAt {
+          if let dueDate = task.displayedDueDate {
             Label {
-              Text(dueAt, format: .dateTime.month(.abbreviated).day())
+              Text(dueDate, format: .dateTime.month(.abbreviated).day())
             } icon: {
               Image(systemName: "calendar")
             }
-            .foregroundStyle(dueAt < Date() && !task.isCompleted ? .red : .secondary)
+            .foregroundStyle(task.isOverdue ? .red : .secondary)
           }
           switch task.syncState {
           case .synced:

@@ -3,7 +3,7 @@ import SwiftUI
 struct ContentView: View {
   @Environment(TaskStore.self) private var store
 
-  @State private var filter: TaskListFilter? = .active
+  @State private var filter: TaskListFilter? = .inbox
   @State private var searchText = ""
   @State private var editor: TaskEditorPresentation?
   @State private var isConfirmingClearCompleted = false
@@ -161,7 +161,7 @@ struct ContentView: View {
   }
 
   private var selectedFilter: TaskListFilter {
-    filter ?? .active
+    filter ?? .inbox
   }
 
   private var visibleTasks: [TaskRecord] {

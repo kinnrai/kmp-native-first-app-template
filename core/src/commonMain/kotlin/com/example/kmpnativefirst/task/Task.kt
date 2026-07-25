@@ -1,5 +1,6 @@
 package com.example.kmpnativefirst.task
 
+import kotlinx.datetime.LocalDate
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlin.time.Instant
@@ -10,6 +11,7 @@ data class Task(
     val title: String,
     val notes: String? = null,
     val priority: TaskPriority = TaskPriority.NONE,
+    val dueDate: LocalDate? = null,
     val dueAt: Instant? = null,
     val isCompleted: Boolean = false,
     val createdAt: Instant,
@@ -39,6 +41,24 @@ enum class TaskFilter {
 
     @SerialName("active")
     ACTIVE,
+
+    @SerialName("completed")
+    COMPLETED,
+}
+
+@Serializable
+enum class TaskSmartView {
+    @SerialName("all")
+    ALL,
+
+    @SerialName("inbox")
+    INBOX,
+
+    @SerialName("today")
+    TODAY,
+
+    @SerialName("upcoming")
+    UPCOMING,
 
     @SerialName("completed")
     COMPLETED,

@@ -3,6 +3,7 @@ package com.example.kmpnativefirst.task.data
 import com.example.kmpnativefirst.task.Task
 import com.example.kmpnativefirst.task.TaskPriority
 import com.example.kmpnativefirst.task.TaskValidationIssue
+import kotlinx.datetime.LocalDate
 import kotlinx.serialization.Serializable
 import kotlin.time.Instant
 
@@ -10,6 +11,7 @@ data class TaskDraft(
     val title: String,
     val notes: String? = null,
     val priority: TaskPriority = TaskPriority.NONE,
+    val dueDate: LocalDate? = null,
     val dueAt: Instant? = null,
 )
 
@@ -17,6 +19,7 @@ data class TaskEdit(
     val title: String,
     val notes: String? = null,
     val priority: TaskPriority = TaskPriority.NONE,
+    val dueDate: LocalDate? = null,
     val dueAt: Instant? = null,
     val isCompleted: Boolean = false,
 )
@@ -25,6 +28,7 @@ fun Task.toEdit(): TaskEdit = TaskEdit(
     title = title,
     notes = notes,
     priority = priority,
+    dueDate = dueDate,
     dueAt = dueAt,
     isCompleted = isCompleted,
 )
@@ -55,6 +59,7 @@ enum class TaskConflictField {
     TITLE,
     NOTES,
     PRIORITY,
+    DUE_DATE,
     DUE_AT,
     COMPLETION,
 }
