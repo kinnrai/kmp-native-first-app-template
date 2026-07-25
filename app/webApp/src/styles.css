@@ -582,6 +582,12 @@ svg {
   background: #fafbfc;
 }
 
+.reminder-button {
+  max-width: 13rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .button-warning {
   min-height: 2.3rem;
   padding: 0.4rem 0.7rem;
@@ -660,6 +666,12 @@ svg {
 
 .status-banner > svg {
   margin-right: 0.75rem;
+}
+
+.status-note {
+  flex: 0 0 auto;
+  margin-left: 0.75rem;
+  font-size: 0.72rem;
 }
 
 .conflict-banner {
@@ -921,6 +933,10 @@ svg {
 .task-project .project-dot {
   width: 0.45rem;
   height: 0.45rem;
+}
+
+.reminder-meta {
+  color: #635d8c;
 }
 
 .due.overdue {
@@ -1713,7 +1729,15 @@ svg {
     grid-template-columns: minmax(0, 1fr) auto auto;
   }
 
+  .reminder-button {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    max-width: none;
+  }
+
   .add-button {
+    grid-column: 3;
+    grid-row: 1;
     width: 2.75rem;
     padding: 0;
   }

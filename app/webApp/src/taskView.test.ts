@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest';
 import type { WebTask, WebTaskItem } from 'shared-logic';
 import {
   formatDueDate,
+  formatReminder,
   instantToLocalDate,
+  instantToLocalDateTime,
   isOverdue,
+  localDateTimeToInstant,
   searchTasks,
 } from './taskView.ts';
 
@@ -49,10 +52,22 @@ describe('task view helpers', () => {
 
   it('projects precise instants into the browser calendar date', () => {
     expect(instantToLocalDate('2026-07-24T09:30:00Z')).toBe('2026-07-24');
+    expect(instantToLocalDateTime('2026-07-24T09:30:00Z')).toMatch(
+      /^2026-07-24T/,
+    );
+    expect(localDateTimeToInstant('2026-07-24T09:30')).toBe(
+      new Date('2026-07-24T09:30').toISOString(),
+    );
   });
 
   it('formats date-only deadlines without converting through UTC', () => {
     expect(formatDueDate('2026-07-24', undefined, 'en-US')).toBe(
+      'Jul 24, 2026',
+    );
+  });
+
+  it('formats reminders as local date and time', () => {
+    expect(formatReminder('2026-07-24T09:30:00Z', 'en-US')).toContain(
       'Jul 24, 2026',
     );
   });

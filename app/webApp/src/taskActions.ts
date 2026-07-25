@@ -7,6 +7,7 @@ export interface TaskActions {
     priority: string,
     dueDate: string | null | undefined,
     dueAt: string | null | undefined,
+    reminderAt: string | null | undefined,
     projectId: string | null | undefined,
   ): void;
   update(
@@ -16,6 +17,7 @@ export interface TaskActions {
     priority: string,
     dueDate: string | null | undefined,
     dueAt: string | null | undefined,
+    reminderAt: string | null | undefined,
     isCompleted: boolean,
     projectId: string | null | undefined,
   ): void;
@@ -31,6 +33,7 @@ export interface TaskActions {
     priority: string,
     dueDate: string | null | undefined,
     dueAt: string | null | undefined,
+    reminderAt: string | null | undefined,
     isCompleted: boolean,
     projectId: string | null | undefined,
   ): void;

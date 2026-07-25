@@ -6,7 +6,7 @@ import type {
   WebTaskProjectItem,
 } from 'shared-logic';
 import type { TaskActions } from '../../taskActions.ts';
-import { formatDueDate } from '../../taskView.ts';
+import { formatDueDate, formatReminder } from '../../taskView.ts';
 import { CloseIcon, WarningIcon } from '../Icons.tsx';
 import {
   TaskEditorDialog,
@@ -29,6 +29,7 @@ const fieldNames: Record<string, string> = {
   priority: 'priority',
   due_date: 'due date',
   due_at: 'due date',
+  reminder_at: 'reminder',
   completion: 'completion',
 };
 
@@ -56,6 +57,7 @@ export function TaskConflictDialog({
         values.priority,
         values.dueDate,
         values.dueAt,
+        values.reminderAt,
         values.isCompleted,
         values.projectId,
       );
@@ -200,6 +202,10 @@ function TaskVersionCard({
               <dd>
                 {formatDueDate(task.dueDate, task.dueAt) ?? 'No due date'}
               </dd>
+            </div>
+            <div>
+              <dt>Reminder</dt>
+              <dd>{formatReminder(task.reminderAt) ?? 'No reminder'}</dd>
             </div>
             <div>
               <dt>Status</dt>

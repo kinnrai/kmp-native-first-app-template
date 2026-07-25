@@ -2,7 +2,11 @@ import { useId, useState } from 'react';
 import type { FormEvent, KeyboardEvent, MouseEvent } from 'react';
 import type { WebTask, WebTaskProjectItem } from 'shared-logic';
 import { CloseIcon } from '../Icons.tsx';
-import { instantToLocalDate } from '../../taskView.ts';
+import {
+  instantToLocalDate,
+  instantToLocalDateTime,
+  localDateTimeToInstant,
+} from '../../taskView.ts';
 
 export interface TaskEditorValues {
   title: string;
@@ -10,6 +14,7 @@ export interface TaskEditorValues {
   priority: string;
   dueDate?: string;
   dueAt?: string;
+  reminderAt?: string;
   isCompleted: boolean;
   projectId?: string;
 }
@@ -35,6 +40,7 @@ export function TaskEditorDialog({
 }: TaskEditorDialogProps) {
   const headingId = useId();
   const descriptionId = useId();
+  const reminderHelpId = useId();
   const [title, setTitle] = useState(initialTask?.title ?? '');
   const [notes, setNotes] = useState(initialTask?.notes ?? '');
   const [priority, setPriority] = useState(initialTask?.priority ?? 'none');
@@ -43,6 +49,9 @@ export function TaskEditorDialog({
   );
   const [preciseDueAt, setPreciseDueAt] = useState(
     initialTask?.dueDate ? undefined : initialTask?.dueAt ?? undefined,
+  );
+  const [reminderAt, setReminderAt] = useState(
+    instantToLocalDateTime(initialTask?.reminderAt),
   );
   const [isCompleted, setIsCompleted] = useState(
     initialTask?.isCompleted ?? false,
@@ -61,6 +70,7 @@ export function TaskEditorDialog({
       priority,
       dueDate: preciseDueAt ? undefined : dueDate || undefined,
       dueAt: preciseDueAt,
+      reminderAt: localDateTimeToInstant(reminderAt),
       isCompleted,
       projectId: projectId || undefined,
     });
@@ -171,6 +181,19 @@ export function TaskEditorDialog({
                 type="date"
                 value={dueDate}
               />
+            </label>
+
+            <label className="field">
+              <span>Reminder</span>
+              <input
+                aria-describedby={reminderHelpId}
+                onChange={(event) => setReminderAt(event.target.value)}
+                type="datetime-local"
+                value={reminderAt}
+              />
+              <small id={reminderHelpId}>
+                Only while this browser tab is open
+              </small>
             </label>
           </div>
 
