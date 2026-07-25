@@ -2,6 +2,7 @@ package com.example.kmpnativefirst.task.data
 
 import com.example.kmpnativefirst.task.Task
 import com.example.kmpnativefirst.task.TaskPriority
+import com.example.kmpnativefirst.task.TaskProjectColor
 import com.example.kmpnativefirst.task.TaskSmartView
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -32,10 +33,17 @@ class AppleTaskStoreTest {
         repository.taskItems.value = listOf(
             TaskItem(task(title = "Native task"), TaskSyncState.PENDING),
         )
+        repository.projectItems.value = listOf(
+            TaskProjectItem(
+                project = taskProject(name = "Personal"),
+                syncState = TaskSyncState.PENDING,
+            ),
+        )
         repository.status.value = TaskSyncStatus(pendingCount = 1)
         runCurrent()
 
         assertEquals("Native task", snapshots.last().tasks.single().task.title)
+        assertEquals("Personal", snapshots.last().projects.single().project.name)
         assertEquals(1, snapshots.last().syncStatus.pendingCount)
 
         observation.cancel()
@@ -161,22 +169,87 @@ class AppleTaskStoreTest {
 
         assertTrue(repository.closed)
     }
+
+    @Test
+    fun mapsProjectEditorValuesAndConflictChoices() = runTest {
+        val repository = RecordingTaskRepository()
+        val store = AppleTaskStore(
+            repository = repository,
+            dispatcher = StandardTestDispatcher(testScheduler),
+        )
+
+        store.createProject(
+            name = "Personal",
+            color = TaskProjectColor.PURPLE,
+        )
+        assertEquals(
+            TaskProjectDraft(
+                name = "Personal",
+                color = TaskProjectColor.PURPLE,
+            ),
+            repository.createdProjectDraft,
+        )
+
+        store.updateProject(
+            projectId = TASK_ID_1,
+            name = "Home",
+            color = TaskProjectColor.GREEN,
+        )
+        assertEquals(
+            TaskProjectEdit(
+                name = "Home",
+                color = TaskProjectColor.GREEN,
+            ),
+            repository.updatedProjectEdit,
+        )
+
+        store.deleteProject(TASK_ID_1)
+        assertEquals(TASK_ID_1, repository.deletedProjectId)
+
+        store.keepLocalProject(TASK_ID_1)
+        assertTrue(
+            repository.projectResolution is
+                TaskProjectConflictResolution.KeepLocal,
+        )
+        store.useRemoteProject(TASK_ID_1)
+        assertTrue(
+            repository.projectResolution is
+                TaskProjectConflictResolution.UseRemote,
+        )
+        store.mergeProjectConflict(
+            projectId = TASK_ID_1,
+            name = "Merged",
+            color = TaskProjectColor.ROSE,
+        )
+        val merge = assertIs<TaskProjectConflictResolution.Merge>(
+            repository.projectResolution,
+        )
+        assertEquals("Merged", merge.edit.name)
+        assertEquals(TaskProjectColor.ROSE, merge.edit.color)
+    }
 }
 
 private class RecordingTaskRepository : TaskRepository {
     val taskItems = MutableStateFlow<List<TaskItem>>(emptyList())
     val taskConflicts = MutableStateFlow<List<TaskConflict>>(emptyList())
+    val projectItems = MutableStateFlow<List<TaskProjectItem>>(emptyList())
+    val projectConflictItems =
+        MutableStateFlow<List<TaskProjectConflict>>(emptyList())
     val status = MutableStateFlow(TaskSyncStatus())
     var createdDraft: TaskDraft? = null
     var updatedEdit: TaskEdit? = null
     var resolution: TaskConflictResolution? = null
+    var createdProjectDraft: TaskProjectDraft? = null
+    var updatedProjectEdit: TaskProjectEdit? = null
+    var deletedProjectId: String? = null
+    var projectResolution: TaskProjectConflictResolution? = null
     var closed = false
 
     override val tasks: Flow<List<TaskItem>> = taskItems
     override val conflicts: Flow<List<TaskConflict>> = taskConflicts
-    override val projects = MutableStateFlow<List<TaskProjectItem>>(emptyList())
-    override val projectConflicts =
-        MutableStateFlow<List<TaskProjectConflict>>(emptyList())
+    override val projects: Flow<List<TaskProjectItem>> = projectItems
+    override val projectConflicts: Flow<List<TaskProjectConflict>> =
+        projectConflictItems
     override val syncStatus: StateFlow<TaskSyncStatus> = status
 
     override suspend fun create(draft: TaskDraft): Task {
@@ -207,20 +280,27 @@ private class RecordingTaskRepository : TaskRepository {
     }
 
     override suspend fun createProject(draft: TaskProjectDraft) =
-        error("Project operations are outside this Apple task-store test.")
+        taskProject().also {
+            createdProjectDraft = draft
+        }
 
     override suspend fun updateProject(
         projectId: String,
         edit: TaskProjectEdit,
-    ) = error("Project operations are outside this Apple task-store test.")
+    ) = taskProject(id = projectId).also {
+        updatedProjectEdit = edit
+    }
 
-    override suspend fun deleteProject(projectId: String) =
-        error("Project operations are outside this Apple task-store test.")
+    override suspend fun deleteProject(projectId: String) {
+        deletedProjectId = projectId
+    }
 
     override suspend fun resolveProjectConflict(
         projectId: String,
         resolution: TaskProjectConflictResolution,
-    ) = error("Project operations are outside this Apple task-store test.")
+    ) {
+        projectResolution = resolution
+    }
 
     override suspend fun sync(): TaskSyncResult =
         TaskSyncResult.Success(

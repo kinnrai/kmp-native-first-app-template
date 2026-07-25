@@ -122,6 +122,16 @@ struct TaskDetailView: View {
 
   private func details(_ task: TaskRecord) -> some View {
     Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 12) {
+      if let projectID = task.projectID,
+        let project = store.displayedProject(id: projectID)
+      {
+        GridRow {
+          Label("Project", systemImage: "folder")
+            .foregroundStyle(project.color.color)
+          TaskProjectLabel(project: project)
+        }
+      }
+
       if let notes = task.notes {
         GridRow {
           Label("Notes", systemImage: "note.text")

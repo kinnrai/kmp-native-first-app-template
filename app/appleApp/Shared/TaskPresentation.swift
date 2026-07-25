@@ -13,7 +13,7 @@ extension TaskPriorityValue {
 
 struct TaskEditorPresentation: Identifiable {
   enum Mode {
-    case create
+    case create(projectID: String?)
     case edit(TaskRecord)
     case merge(TaskConflictRecord)
   }
@@ -31,8 +31,8 @@ struct TaskEditorPresentation: Identifiable {
 
   var draft: TaskEditorDraft {
     switch mode {
-    case .create:
-      TaskEditorDraft()
+    case .create(let projectID):
+      TaskEditorDraft(defaultProjectID: projectID)
     case .edit(let task):
       TaskEditorDraft(task: task)
     case .merge(let conflict):
@@ -43,6 +43,7 @@ struct TaskEditorPresentation: Identifiable {
 
 struct TaskRow: View {
   let task: TaskRecord
+  var project: TaskProjectRecord?
   let toggleCompleted: () -> Void
 
   var body: some View {
@@ -66,6 +67,9 @@ struct TaskRow: View {
           .lineLimit(2)
 
         HStack(spacing: 8) {
+          if let project {
+            TaskProjectLabel(project: project)
+          }
           if task.priority != .none {
             Label(task.priority.title, systemImage: task.priority.systemImage)
               .foregroundStyle(task.priority.color)

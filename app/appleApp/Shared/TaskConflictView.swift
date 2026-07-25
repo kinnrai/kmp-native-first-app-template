@@ -6,6 +6,8 @@ struct TaskConflictView: View {
   let useRemote: () -> Void
   let merge: () -> Void
 
+  @Environment(TaskStore.self) private var store
+
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
       Label("This task changed in two places", systemImage: "exclamationmark.triangle.fill")
@@ -55,6 +57,13 @@ struct TaskConflictView: View {
       if let task {
         Text(task.title)
           .font(.headline)
+        if let projectID = task.projectID,
+          let project = store.displayedProject(id: projectID)
+        {
+          LabeledContent("Project") {
+            TaskProjectLabel(project: project)
+          }
+        }
         if let notes = task.notes {
           Text(notes)
             .font(.subheadline)

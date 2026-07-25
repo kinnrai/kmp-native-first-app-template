@@ -3,6 +3,8 @@ package com.example.kmpnativefirst.task.data
 import com.example.kmpnativefirst.task.Task
 import com.example.kmpnativefirst.task.TaskPlanning
 import com.example.kmpnativefirst.task.TaskPriority
+import com.example.kmpnativefirst.task.TaskProject
+import com.example.kmpnativefirst.task.TaskProjectColor
 import com.example.kmpnativefirst.task.TaskSmartView
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -37,6 +39,8 @@ class AppleTaskStore internal constructor(
             combine(
                 repository.tasks,
                 repository.conflicts,
+                repository.projects,
+                repository.projectConflicts,
                 repository.syncStatus,
                 ::AppleTaskSnapshot,
             ).collect { snapshot ->
@@ -141,6 +145,68 @@ class AppleTaskStore internal constructor(
     }
 
     @Throws(Exception::class)
+    suspend fun createProject(
+        name: String,
+        color: TaskProjectColor,
+    ): TaskProject = repository.createProject(
+        TaskProjectDraft(
+            name = name,
+            color = color,
+        ),
+    )
+
+    @Throws(Exception::class)
+    suspend fun updateProject(
+        projectId: String,
+        name: String,
+        color: TaskProjectColor,
+    ): TaskProject = repository.updateProject(
+        projectId = projectId,
+        edit = TaskProjectEdit(
+            name = name,
+            color = color,
+        ),
+    )
+
+    @Throws(Exception::class)
+    suspend fun deleteProject(projectId: String) {
+        repository.deleteProject(projectId)
+    }
+
+    @Throws(Exception::class)
+    suspend fun keepLocalProject(projectId: String) {
+        repository.resolveProjectConflict(
+            projectId,
+            TaskProjectConflictResolution.KeepLocal,
+        )
+    }
+
+    @Throws(Exception::class)
+    suspend fun useRemoteProject(projectId: String) {
+        repository.resolveProjectConflict(
+            projectId,
+            TaskProjectConflictResolution.UseRemote,
+        )
+    }
+
+    @Throws(Exception::class)
+    suspend fun mergeProjectConflict(
+        projectId: String,
+        name: String,
+        color: TaskProjectColor,
+    ) {
+        repository.resolveProjectConflict(
+            projectId = projectId,
+            resolution = TaskProjectConflictResolution.Merge(
+                TaskProjectEdit(
+                    name = name,
+                    color = color,
+                ),
+            ),
+        )
+    }
+
+    @Throws(Exception::class)
     suspend fun sync(): TaskSyncResult = repository.sync()
 
     fun plannedTasks(
@@ -173,6 +239,8 @@ class AppleTaskStore internal constructor(
 data class AppleTaskSnapshot(
     val tasks: List<TaskItem>,
     val conflicts: List<TaskConflict>,
+    val projects: List<TaskProjectItem>,
+    val projectConflicts: List<TaskProjectConflict>,
     val syncStatus: TaskSyncStatus,
 )
 
