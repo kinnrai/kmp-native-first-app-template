@@ -67,6 +67,7 @@ class TaskViewModel(
             it.copy(
                 editor = TaskEditorUiState(
                     taskId = task.id,
+                    projectId = task.projectId,
                     title = task.title,
                     notes = task.notes.orEmpty(),
                     priority = task.priority,
@@ -137,6 +138,7 @@ class TaskViewModel(
                         edit = TaskEdit(
                             title = editor.title,
                             notes = editor.notes,
+                            projectId = editor.projectId,
                             priority = editor.priority,
                             dueDate = editor.dueDate.takeIf { editor.dueAt == null },
                             dueAt = editor.dueAt,

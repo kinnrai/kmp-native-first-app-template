@@ -13,6 +13,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.datetime.LocalDate
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -57,6 +58,7 @@ class AppleTaskStoreTest {
             priority = TaskPriority.HIGH,
             dueDate = LocalDate(2026, 7, 24),
             dueAt = null,
+            projectId = TASK_ID_2,
         )
         store.update(
             taskId = TASK_ID_1,
@@ -66,12 +68,14 @@ class AppleTaskStoreTest {
             dueDate = null,
             dueAt = null,
             isCompleted = true,
+            projectId = TASK_ID_2,
         )
 
         assertEquals(
             TaskDraft(
                 title = "Plan release",
                 notes = "From Swift",
+                projectId = TASK_ID_2,
                 priority = TaskPriority.HIGH,
                 dueDate = LocalDate(2026, 7, 24),
                 dueAt = null,
@@ -82,6 +86,7 @@ class AppleTaskStoreTest {
             TaskEdit(
                 title = "Ship release",
                 notes = null,
+                projectId = TASK_ID_2,
                 priority = TaskPriority.MEDIUM,
                 dueDate = null,
                 dueAt = null,
@@ -140,6 +145,18 @@ class AppleTaskStoreTest {
         assertTrue(repository.resolution is TaskConflictResolution.KeepLocal)
         store.useRemote(TASK_ID_1)
         assertTrue(repository.resolution is TaskConflictResolution.UseRemote)
+        store.mergeConflict(
+            taskId = TASK_ID_1,
+            title = "Merged",
+            notes = null,
+            priority = TaskPriority.NONE,
+            dueDate = null,
+            dueAt = null,
+            isCompleted = false,
+            projectId = TASK_ID_2,
+        )
+        val merge = assertIs<TaskConflictResolution.Merge>(repository.resolution)
+        assertEquals(TASK_ID_2, merge.edit.projectId)
         store.close()
 
         assertTrue(repository.closed)
@@ -157,6 +174,9 @@ private class RecordingTaskRepository : TaskRepository {
 
     override val tasks: Flow<List<TaskItem>> = taskItems
     override val conflicts: Flow<List<TaskConflict>> = taskConflicts
+    override val projects = MutableStateFlow<List<TaskProjectItem>>(emptyList())
+    override val projectConflicts =
+        MutableStateFlow<List<TaskProjectConflict>>(emptyList())
     override val syncStatus: StateFlow<TaskSyncStatus> = status
 
     override suspend fun create(draft: TaskDraft): Task {
@@ -185,6 +205,22 @@ private class RecordingTaskRepository : TaskRepository {
     ) {
         this.resolution = resolution
     }
+
+    override suspend fun createProject(draft: TaskProjectDraft) =
+        error("Project operations are outside this Apple task-store test.")
+
+    override suspend fun updateProject(
+        projectId: String,
+        edit: TaskProjectEdit,
+    ) = error("Project operations are outside this Apple task-store test.")
+
+    override suspend fun deleteProject(projectId: String) =
+        error("Project operations are outside this Apple task-store test.")
+
+    override suspend fun resolveProjectConflict(
+        projectId: String,
+        resolution: TaskProjectConflictResolution,
+    ) = error("Project operations are outside this Apple task-store test.")
 
     override suspend fun sync(): TaskSyncResult =
         TaskSyncResult.Success(

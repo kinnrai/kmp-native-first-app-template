@@ -17,6 +17,11 @@ internal suspend fun createWebTaskRepository(
                 baseUrl = baseUrl,
                 client = createPlatformTaskHttpClient(),
             ),
+            projectLocal = local,
+            projectRemote = KtorTaskProjectRemoteDataSource(
+                baseUrl = baseUrl,
+                client = createPlatformTaskHttpClient(),
+            ),
         ).initialize()
     } catch (error: Throwable) {
         stateStore.close()

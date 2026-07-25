@@ -133,6 +133,49 @@ class TaskServiceTest {
     }
 
     @Test
+    fun assignsTasksOnlyToExistingProjects() = runBlocking {
+        val repository = InMemoryTaskRepository()
+        val projectService = TaskProjectService(repository, clock)
+        val service = TaskService(repository, clock)
+        val project = projectService.create(
+            CreateTaskProjectRequest(
+                id = PROJECT_ID,
+                name = "Personal",
+            ),
+        )
+
+        val created = service.create(
+            CreateTaskRequest(
+                id = TASK_ID,
+                title = "Plan release",
+                projectId = project.id,
+            ),
+        )
+        assertEquals(project.id, created.projectId)
+
+        val exception = assertFailsWith<TaskValidationException> {
+            service.replace(
+                id = created.id,
+                request = ReplaceTaskRequest(
+                    title = created.title,
+                    projectId = MISSING_PROJECT_ID,
+                    expectedRevision = created.revision,
+                ),
+            )
+        }
+        assertEquals(
+            listOf(
+                TaskValidationIssue(
+                    TaskField.PROJECT_ID,
+                    TaskValidationCode.INVALID,
+                ),
+            ),
+            exception.issues,
+        )
+        assertEquals(project.id, service.find(created.id).projectId)
+    }
+
+    @Test
     fun rejectsDuplicateClientIdAndStaleDelete() = runBlocking {
         val service = taskService()
         val created = service.create(CreateTaskRequest(id = TASK_ID, title = "Original"))
@@ -151,10 +194,13 @@ class TaskServiceTest {
         Unit
     }
 
-    private fun taskService(): TaskService = TaskService(
-        repository = InMemoryTaskRepository(),
-        clock = clock,
-    )
+    private fun taskService(): TaskService {
+        val repository = InMemoryTaskRepository()
+        return TaskService(
+            repository = repository,
+            clock = clock,
+        )
+    }
 
     private fun task(
         id: String,
@@ -173,6 +219,8 @@ class TaskServiceTest {
 
     private companion object {
         const val TASK_ID = "11111111-1111-4111-8111-111111111111"
+        const val PROJECT_ID = "22222222-2222-4222-8222-222222222222"
+        const val MISSING_PROJECT_ID = "33333333-3333-4333-8333-333333333333"
     }
 }
 

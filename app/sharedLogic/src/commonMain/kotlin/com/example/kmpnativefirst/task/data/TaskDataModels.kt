@@ -10,6 +10,7 @@ import kotlin.time.Instant
 data class TaskDraft(
     val title: String,
     val notes: String? = null,
+    val projectId: String? = null,
     val priority: TaskPriority = TaskPriority.NONE,
     val dueDate: LocalDate? = null,
     val dueAt: Instant? = null,
@@ -18,6 +19,7 @@ data class TaskDraft(
 data class TaskEdit(
     val title: String,
     val notes: String? = null,
+    val projectId: String? = null,
     val priority: TaskPriority = TaskPriority.NONE,
     val dueDate: LocalDate? = null,
     val dueAt: Instant? = null,
@@ -27,6 +29,7 @@ data class TaskEdit(
 fun Task.toEdit(): TaskEdit = TaskEdit(
     title = title,
     notes = notes,
+    projectId = projectId,
     priority = priority,
     dueDate = dueDate,
     dueAt = dueAt,
@@ -58,6 +61,7 @@ enum class TaskConflictField {
     DELETION,
     TITLE,
     NOTES,
+    PROJECT,
     PRIORITY,
     DUE_DATE,
     DUE_AT,

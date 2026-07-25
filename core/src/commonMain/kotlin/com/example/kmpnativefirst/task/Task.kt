@@ -10,6 +10,7 @@ data class Task(
     val id: String,
     val title: String,
     val notes: String? = null,
+    val projectId: String? = null,
     val priority: TaskPriority = TaskPriority.NONE,
     val dueDate: LocalDate? = null,
     val dueAt: Instant? = null,

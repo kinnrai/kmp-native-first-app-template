@@ -85,10 +85,107 @@ class SqliteTaskRepositoryTest {
 
         val repository = SqliteTaskRepository.open(jdbcUrl)
         val dueDate = LocalDate(2026, 8, 1)
-        val original = task().copy(dueDate = dueDate, dueAt = null)
+        val project = TaskProject(
+            id = "project-1",
+            name = "Migrated project",
+            createdAt = Instant.parse("2026-07-23T09:00:00Z"),
+            updatedAt = Instant.parse("2026-07-23T09:00:00Z"),
+            revision = 1,
+        )
+        assertEquals(
+            TaskProjectInsertResult.Inserted(project),
+            repository.insertProject(project),
+        )
+        val original = task().copy(
+            projectId = project.id,
+            dueDate = dueDate,
+            dueAt = null,
+        )
 
         assertEquals(TaskInsertResult.Inserted(original), repository.insert(original))
         assertEquals(dueDate, repository.find(original.id)?.dueDate)
+        assertEquals(project.id, repository.find(original.id)?.projectId)
+    }
+
+    @Test
+    fun persistsProjectsAndAppliesRevisionChecks() = runBlocking {
+        val databaseFile = Files.createTempDirectory("project-repository-test")
+            .resolve("tasks.db")
+        val jdbcUrl = "jdbc:sqlite:$databaseFile"
+        val repository = SqliteTaskRepository.open(jdbcUrl)
+        assertEquals(
+            TaskInsertResult.InvalidProject,
+            repository.insert(
+                task(id = "orphan").copy(projectId = "missing-project"),
+            ),
+        )
+        assertNull(repository.find("orphan"))
+        val original = TaskProject(
+            id = "project-1",
+            name = "Personal",
+            color = TaskProjectColor.ROSE,
+            createdAt = Instant.parse("2026-07-23T10:00:00Z"),
+            updatedAt = Instant.parse("2026-07-23T10:00:00Z"),
+            revision = 1,
+        )
+        assertEquals(
+            TaskProjectInsertResult.Inserted(original),
+            repository.insertProject(original),
+        )
+        val assignedTask = task().copy(projectId = original.id)
+        assertEquals(
+            TaskInsertResult.Inserted(assignedTask),
+            repository.insert(assignedTask),
+        )
+        assertEquals(
+            TaskMutationResult.InvalidProject,
+            repository.replace(
+                task = assignedTask.copy(
+                    projectId = "missing-project",
+                    revision = 2,
+                ),
+                expectedRevision = 1,
+            ),
+        )
+        assertEquals(original.id, repository.find(assignedTask.id)?.projectId)
+        assertEquals(
+            TaskProjectInsertResult.AlreadyExists,
+            repository.insertProject(original),
+        )
+
+        val reopenedRepository = SqliteTaskRepository.open(jdbcUrl)
+        assertEquals(original, reopenedRepository.findProject(original.id))
+        val replacement = original.copy(
+            name = "Home",
+            revision = 2,
+            updatedAt = Instant.parse("2026-07-23T11:00:00Z"),
+        )
+        assertEquals(
+            TaskProjectMutationResult.Updated(replacement),
+            reopenedRepository.replaceProject(replacement, expectedRevision = 1),
+        )
+        assertEquals(
+            TaskProjectMutationResult.Conflict,
+            reopenedRepository.replaceProject(
+                replacement.copy(name = "Stale"),
+                expectedRevision = 1,
+            ),
+        )
+        assertEquals(
+            TaskProjectDeleteResult.Deleted(reassignedTaskCount = 1),
+            reopenedRepository.deleteProject(
+                id = original.id,
+                expectedRevision = 2,
+                reassignedTasksUpdatedAt = Instant.parse("2026-07-23T12:00:00Z"),
+            ),
+        )
+        val reassignedTask = requireNotNull(reopenedRepository.find(assignedTask.id))
+        assertNull(reassignedTask.projectId)
+        assertEquals(2, reassignedTask.revision)
+        assertEquals(
+            Instant.parse("2026-07-23T12:00:00Z"),
+            reassignedTask.updatedAt,
+        )
     }
 
     private fun task(

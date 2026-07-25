@@ -11,6 +11,11 @@ import com.example.kmpnativefirst.task.data.TaskDraft
 import com.example.kmpnativefirst.task.data.TaskEdit
 import com.example.kmpnativefirst.task.data.TaskItem
 import com.example.kmpnativefirst.task.data.TaskMutationKind
+import com.example.kmpnativefirst.task.data.TaskProjectConflict
+import com.example.kmpnativefirst.task.data.TaskProjectConflictResolution
+import com.example.kmpnativefirst.task.data.TaskProjectDraft
+import com.example.kmpnativefirst.task.data.TaskProjectEdit
+import com.example.kmpnativefirst.task.data.TaskProjectItem
 import com.example.kmpnativefirst.task.data.TaskRepository
 import com.example.kmpnativefirst.task.data.TaskSyncPhase
 import com.example.kmpnativefirst.task.data.TaskSyncResult
@@ -80,7 +85,7 @@ class TaskViewModelTest {
         assertEquals(1, repository.syncCalls)
         assertEquals(3, viewModel.uiState.value.activeCount)
         assertEquals(1, viewModel.uiState.value.completedCount)
-        assertEquals(listOf("one"), viewModel.uiState.value.tasks.map { it.task.id })
+        assertEquals(listOf("three", "four", "one"), viewModel.uiState.value.tasks.map { it.task.id })
 
         viewModel.setView(TaskSmartView.TODAY)
         viewModel.setSearchQuery("release")
@@ -264,6 +269,10 @@ private class FakeTaskRepository(
     private val mutableConflicts = MutableStateFlow(initialConflicts)
     override val conflicts: StateFlow<List<TaskConflict>> = mutableConflicts.asStateFlow()
 
+    override val projects = MutableStateFlow<List<TaskProjectItem>>(emptyList())
+    override val projectConflicts =
+        MutableStateFlow<List<TaskProjectConflict>>(emptyList())
+
     private val mutableSyncStatus = MutableStateFlow(TaskSyncStatus())
     override val syncStatus: StateFlow<TaskSyncStatus> = mutableSyncStatus.asStateFlow()
 
@@ -276,6 +285,7 @@ private class FakeTaskRepository(
             id = id,
             title = draft.title,
             notes = draft.notes,
+            projectId = draft.projectId,
             priority = draft.priority,
             dueDate = draft.dueDate,
             dueAt = draft.dueAt,
@@ -289,6 +299,7 @@ private class FakeTaskRepository(
         val updated = current.task.copy(
             title = edit.title,
             notes = edit.notes,
+            projectId = edit.projectId,
             priority = edit.priority,
             dueDate = edit.dueDate,
             dueAt = edit.dueAt,
@@ -312,6 +323,7 @@ private class FakeTaskRepository(
             TaskEdit(
                 title = current.title,
                 notes = current.notes,
+                projectId = current.projectId,
                 priority = current.priority,
                 dueDate = current.dueDate,
                 dueAt = current.dueAt,
@@ -339,6 +351,7 @@ private class FakeTaskRepository(
             is TaskConflictResolution.Merge -> conflict.local?.copy(
                 title = resolution.edit.title,
                 notes = resolution.edit.notes,
+                projectId = resolution.edit.projectId,
                 priority = resolution.edit.priority,
                 dueDate = resolution.edit.dueDate,
                 dueAt = resolution.edit.dueAt,
@@ -354,6 +367,22 @@ private class FakeTaskRepository(
             }
         mutableConflicts.value = mutableConflicts.value.filterNot { it.taskId == taskId }
     }
+
+    override suspend fun createProject(draft: TaskProjectDraft) =
+        error("Project operations are outside this task view-model test.")
+
+    override suspend fun updateProject(
+        projectId: String,
+        edit: TaskProjectEdit,
+    ) = error("Project operations are outside this task view-model test.")
+
+    override suspend fun deleteProject(projectId: String) =
+        error("Project operations are outside this task view-model test.")
+
+    override suspend fun resolveProjectConflict(
+        projectId: String,
+        resolution: TaskProjectConflictResolution,
+    ) = error("Project operations are outside this task view-model test.")
 
     override suspend fun sync(): TaskSyncResult {
         syncCalls += 1
@@ -397,6 +426,7 @@ private fun task(
     id: String,
     title: String,
     notes: String? = null,
+    projectId: String? = null,
     priority: TaskPriority = TaskPriority.NONE,
     dueDate: LocalDate? = null,
     dueAt: Instant? = null,
@@ -405,6 +435,7 @@ private fun task(
     id = id,
     title = title,
     notes = notes,
+    projectId = projectId,
     priority = priority,
     dueDate = dueDate,
     dueAt = dueAt,

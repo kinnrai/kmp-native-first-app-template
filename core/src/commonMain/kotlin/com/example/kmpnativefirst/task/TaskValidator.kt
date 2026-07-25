@@ -22,6 +22,9 @@ enum class TaskField {
     @SerialName("notes")
     NOTES,
 
+    @SerialName("projectId")
+    PROJECT_ID,
+
     @SerialName("dueDate")
     DUE_DATE,
 
@@ -66,6 +69,7 @@ object TaskValidator {
     fun validate(
         title: String,
         notes: String?,
+        projectId: String? = null,
         dueDate: LocalDate? = null,
         dueAt: Instant? = null,
         expectedRevision: Long? = null,
@@ -80,6 +84,10 @@ object TaskValidator {
 
             if (input.notes != null && input.notes.length > TaskConstraints.MAX_NOTES_LENGTH) {
                 add(TaskValidationIssue(TaskField.NOTES, TaskValidationCode.TOO_LONG))
+            }
+
+            if (projectId != null && Uuid.parseOrNull(projectId) == null) {
+                add(TaskValidationIssue(TaskField.PROJECT_ID, TaskValidationCode.INVALID))
             }
 
             if (dueDate != null && dueAt != null) {
@@ -97,6 +105,7 @@ object TaskValidator {
         id: String,
         title: String,
         notes: String?,
+        projectId: String? = null,
         dueDate: LocalDate? = null,
         dueAt: Instant? = null,
     ): List<TaskValidationIssue> = buildList {
@@ -107,6 +116,7 @@ object TaskValidator {
             validate(
                 title = title,
                 notes = notes,
+                projectId = projectId,
                 dueDate = dueDate,
                 dueAt = dueAt,
             ),

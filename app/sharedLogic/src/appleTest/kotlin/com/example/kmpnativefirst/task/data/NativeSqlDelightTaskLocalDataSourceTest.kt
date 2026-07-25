@@ -25,12 +25,21 @@ class NativeSqlDelightTaskLocalDataSourceTest {
                 operationId = "create-native-task",
                 enqueuedAt = TEST_INSTANT,
             )
+            source.applyProjectCreate(
+                project = taskProject(revision = 0),
+                operationId = "create-native-project",
+                enqueuedAt = TEST_INSTANT,
+            )
 
             assertEquals(
                 TaskSyncState.PENDING,
                 source.observeTasks().first().single().syncState,
             )
             assertEquals(TaskMutationKind.CREATE, source.nextMutation()?.kind)
+            assertEquals(
+                TaskMutationKind.CREATE,
+                source.nextProjectMutation(false)?.kind,
+            )
         } finally {
             source.close()
         }

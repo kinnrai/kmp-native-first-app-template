@@ -24,6 +24,8 @@ sealed interface TaskInsertResult {
     data class Inserted(val task: Task) : TaskInsertResult
 
     data object AlreadyExists : TaskInsertResult
+
+    data object InvalidProject : TaskInsertResult
 }
 
 sealed interface TaskMutationResult {
@@ -32,6 +34,8 @@ sealed interface TaskMutationResult {
     data object NotFound : TaskMutationResult
 
     data object Conflict : TaskMutationResult
+
+    data object InvalidProject : TaskMutationResult
 }
 
 sealed interface TaskDeleteResult {

@@ -25,8 +25,7 @@ object TaskPlanning {
         timeZone: TimeZone,
     ): Boolean = when (view) {
         TaskSmartView.ALL -> true
-        TaskSmartView.INBOX ->
-            !task.isCompleted && task.dueDate == null && task.dueAt == null
+        TaskSmartView.INBOX -> !task.isCompleted && task.projectId == null
         TaskSmartView.TODAY ->
             !task.isCompleted && dueDate(task, timeZone)?.let { it <= today } == true
         TaskSmartView.UPCOMING ->

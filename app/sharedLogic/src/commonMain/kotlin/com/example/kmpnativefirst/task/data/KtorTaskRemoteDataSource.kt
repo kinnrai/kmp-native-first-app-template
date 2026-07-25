@@ -55,6 +55,7 @@ internal class KtorTaskRemoteDataSource(
                     id = task.id,
                     title = task.title,
                     notes = task.notes,
+                    projectId = task.projectId,
                     priority = task.priority,
                     dueDate = task.dueDate,
                     dueAt = task.dueAt,
@@ -72,6 +73,7 @@ internal class KtorTaskRemoteDataSource(
                 ReplaceTaskRequest(
                     title = task.title,
                     notes = task.notes,
+                    projectId = task.projectId,
                     priority = task.priority,
                     dueDate = task.dueDate,
                     dueAt = task.dueAt,

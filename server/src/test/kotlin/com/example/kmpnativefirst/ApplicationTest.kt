@@ -2,12 +2,20 @@ package com.example.kmpnativefirst
 
 import com.example.kmpnativefirst.task.ApiErrorResponse
 import com.example.kmpnativefirst.task.CreateTaskRequest
+import com.example.kmpnativefirst.task.CreateTaskProjectRequest
 import com.example.kmpnativefirst.task.InMemoryTaskRepository
 import com.example.kmpnativefirst.task.ReplaceTaskRequest
+import com.example.kmpnativefirst.task.ReplaceTaskProjectRequest
 import com.example.kmpnativefirst.task.Task
 import com.example.kmpnativefirst.task.TaskApi
 import com.example.kmpnativefirst.task.TaskListResponse
 import com.example.kmpnativefirst.task.TaskPriority
+import com.example.kmpnativefirst.task.TaskProject
+import com.example.kmpnativefirst.task.TaskProjectApi
+import com.example.kmpnativefirst.task.TaskProjectApiErrorResponse
+import com.example.kmpnativefirst.task.TaskProjectColor
+import com.example.kmpnativefirst.task.TaskProjectListResponse
+import com.example.kmpnativefirst.task.TaskProjectService
 import com.example.kmpnativefirst.task.TaskService
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
@@ -35,7 +43,7 @@ class ApplicationTest {
 
     @Test
     fun keepsRootGreetingAndExposesHealthCheck() = testApplication {
-        application { configureApplication(taskService()) }
+        application { configureTestApplication() }
 
         assertEquals("Hello, Ktor!", client.get("/").bodyAsText())
         val health = client.get("/health")
@@ -45,7 +53,7 @@ class ApplicationTest {
 
     @Test
     fun supportsTaskCrudFilteringAndCompletedCleanup() = testApplication {
-        application { configureApplication(taskService()) }
+        application { configureTestApplication() }
 
         val createdResponse = client.post(TaskApi.BASE_PATH) {
             jsonBody(
@@ -98,7 +106,7 @@ class ApplicationTest {
 
     @Test
     fun reportsValidationMalformedRequestsAndUnknownFilters() = testApplication {
-        application { configureApplication(taskService()) }
+        application { configureTestApplication() }
 
         val invalid = client.post(TaskApi.BASE_PATH) {
             jsonBody(CreateTaskRequest(id = "not-a-uuid", title = " "))
@@ -122,7 +130,7 @@ class ApplicationTest {
 
     @Test
     fun reportsRevisionConflictsAndMissingTasks() = testApplication {
-        application { configureApplication(taskService()) }
+        application { configureTestApplication() }
         val created = client.post(TaskApi.BASE_PATH) {
             jsonBody(CreateTaskRequest(id = TASK_ID, title = "Original"))
         }.decode<Task>()
@@ -155,12 +163,100 @@ class ApplicationTest {
         assertEquals("task_not_found", missing.decode<ApiErrorResponse>().code)
     }
 
-    private fun taskService(): TaskService = TaskService(
-        repository = InMemoryTaskRepository(),
-        clock = object : Clock {
+    @Test
+    fun supportsProjectCrudAndRevisionConflicts() = testApplication {
+        application { configureTestApplication() }
+
+        val invalid = client.post(TaskProjectApi.BASE_PATH) {
+            jsonBody(CreateTaskProjectRequest(id = "invalid", name = " "))
+        }
+        assertEquals(HttpStatusCode.BadRequest, invalid.status)
+        val invalidError = invalid.decode<TaskProjectApiErrorResponse>()
+        assertEquals("validation_failed", invalidError.code)
+        assertEquals(2, invalidError.issues.size)
+
+        val createdResponse = client.post(TaskProjectApi.BASE_PATH) {
+            jsonBody(
+                CreateTaskProjectRequest(
+                    id = PROJECT_ID,
+                    name = "  Personal  ",
+                    color = TaskProjectColor.GREEN,
+                ),
+            )
+        }
+        assertEquals(HttpStatusCode.Created, createdResponse.status)
+        assertEquals(
+            "${TaskProjectApi.BASE_PATH}/$PROJECT_ID",
+            createdResponse.headers[HttpHeaders.Location],
+        )
+        val created = createdResponse.decode<TaskProject>()
+        assertEquals("Personal", created.name)
+        assertEquals(1, created.revision)
+
+        val listed = client.get(TaskProjectApi.BASE_PATH)
+            .decode<TaskProjectListResponse>()
+        assertEquals(listOf(created), listed.items)
+        assertEquals(
+            created,
+            client.get("${TaskProjectApi.BASE_PATH}/$PROJECT_ID").decode(),
+        )
+
+        val replacement = ReplaceTaskProjectRequest(
+            name = "Home",
+            color = TaskProjectColor.ORANGE,
+            expectedRevision = created.revision,
+        )
+        val updated = client.put("${TaskProjectApi.BASE_PATH}/$PROJECT_ID") {
+            jsonBody(replacement)
+        }.decode<TaskProject>()
+        assertEquals("Home", updated.name)
+        assertEquals(2, updated.revision)
+        val assignedTask = client.post(TaskApi.BASE_PATH) {
+            jsonBody(
+                CreateTaskRequest(
+                    id = TASK_ID,
+                    title = "Plan release",
+                    projectId = updated.id,
+                ),
+            )
+        }.decode<Task>()
+        assertEquals(updated.id, assignedTask.projectId)
+
+        val conflict = client.put("${TaskProjectApi.BASE_PATH}/$PROJECT_ID") {
+            jsonBody(replacement.copy(name = "Stale"))
+        }
+        assertEquals(HttpStatusCode.Conflict, conflict.status)
+        assertEquals(
+            "project_conflict",
+            conflict.decode<TaskProjectApiErrorResponse>().code,
+        )
+
+        val deleted = client.delete(
+            "${TaskProjectApi.BASE_PATH}/$PROJECT_ID?expectedRevision=${updated.revision}",
+        )
+        assertEquals(HttpStatusCode.NoContent, deleted.status)
+        val reassignedTask = client.get("${TaskApi.BASE_PATH}/${assignedTask.id}")
+            .decode<Task>()
+        assertEquals(null, reassignedTask.projectId)
+        assertEquals(assignedTask.revision + 1, reassignedTask.revision)
+        val missing = client.get("${TaskProjectApi.BASE_PATH}/$PROJECT_ID")
+        assertEquals(HttpStatusCode.NotFound, missing.status)
+        assertEquals(
+            "project_not_found",
+            missing.decode<TaskProjectApiErrorResponse>().code,
+        )
+    }
+
+    private fun io.ktor.server.application.Application.configureTestApplication() {
+        val repository = InMemoryTaskRepository()
+        val clock = object : Clock {
             override fun now(): Instant = Instant.parse("2026-07-23T10:00:00Z")
-        },
-    )
+        }
+        configureApplication(
+            taskService = TaskService(repository, clock),
+            taskProjectService = TaskProjectService(repository, clock),
+        )
+    }
 
     private inline fun <reified T> io.ktor.client.request.HttpRequestBuilder.jsonBody(body: T) {
         contentType(ContentType.Application.Json)
@@ -175,5 +271,6 @@ class ApplicationTest {
 
     private companion object {
         const val TASK_ID = "11111111-1111-4111-8111-111111111111"
+        const val PROJECT_ID = "22222222-2222-4222-8222-222222222222"
     }
 }

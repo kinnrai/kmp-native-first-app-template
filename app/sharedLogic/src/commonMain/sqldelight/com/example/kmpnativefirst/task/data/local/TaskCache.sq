@@ -12,7 +12,8 @@ CREATE TABLE cachedTask (
     revision INTEGER NOT NULL,
     syncState TEXT NOT NULL,
     isDeleted INTEGER AS Boolean NOT NULL,
-    dueDate TEXT
+    dueDate TEXT,
+    projectId TEXT
 );
 
 CREATE TABLE taskOutbox (
@@ -29,6 +30,39 @@ ON taskOutbox(enqueuedAtEpochMillis);
 
 CREATE TABLE taskConflict (
     taskId TEXT NOT NULL PRIMARY KEY,
+    kind TEXT NOT NULL,
+    baseJson TEXT,
+    localJson TEXT,
+    remoteJson TEXT,
+    fields TEXT NOT NULL,
+    detectedAtEpochMillis INTEGER NOT NULL
+);
+
+CREATE TABLE cachedTaskProject (
+    id TEXT NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL,
+    color TEXT NOT NULL,
+    createdAtEpochMillis INTEGER NOT NULL,
+    updatedAtEpochMillis INTEGER NOT NULL,
+    revision INTEGER NOT NULL,
+    syncState TEXT NOT NULL,
+    isDeleted INTEGER AS Boolean NOT NULL
+);
+
+CREATE TABLE taskProjectOutbox (
+    operationId TEXT NOT NULL PRIMARY KEY,
+    projectId TEXT NOT NULL UNIQUE,
+    kind TEXT NOT NULL,
+    baseJson TEXT,
+    desiredJson TEXT,
+    enqueuedAtEpochMillis INTEGER NOT NULL
+);
+
+CREATE INDEX taskProjectOutbox_enqueuedAt
+ON taskProjectOutbox(enqueuedAtEpochMillis);
+
+CREATE TABLE taskProjectConflict (
+    projectId TEXT NOT NULL PRIMARY KEY,
     kind TEXT NOT NULL,
     baseJson TEXT,
     localJson TEXT,
@@ -70,9 +104,10 @@ INSERT OR REPLACE INTO cachedTask(
     revision,
     syncState,
     isDeleted,
-    dueDate
+    dueDate,
+    projectId
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 deleteTaskById:
 DELETE FROM cachedTask
@@ -150,3 +185,107 @@ VALUES (?, ?, ?, ?, ?, ?, ?);
 deleteConflictByTaskId:
 DELETE FROM taskConflict
 WHERE taskId = :taskId;
+
+selectVisibleProjects:
+SELECT *
+FROM cachedTaskProject
+WHERE isDeleted = 0
+ORDER BY name COLLATE NOCASE ASC;
+
+selectAllProjects:
+SELECT *
+FROM cachedTaskProject;
+
+selectProjectById:
+SELECT *
+FROM cachedTaskProject
+WHERE id = :id;
+
+upsertProject:
+INSERT OR REPLACE INTO cachedTaskProject(
+    id,
+    name,
+    color,
+    createdAtEpochMillis,
+    updatedAtEpochMillis,
+    revision,
+    syncState,
+    isDeleted
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+deleteProjectById:
+DELETE FROM cachedTaskProject
+WHERE id = :id;
+
+selectNextProjectUpsertOutbox:
+SELECT *
+FROM taskProjectOutbox
+WHERE kind != 'DELETE'
+ORDER BY enqueuedAtEpochMillis ASC, operationId ASC
+LIMIT 1;
+
+selectNextProjectDeleteOutbox:
+SELECT *
+FROM taskProjectOutbox
+WHERE kind = 'DELETE'
+ORDER BY enqueuedAtEpochMillis ASC, operationId ASC
+LIMIT 1;
+
+selectAllProjectOutbox:
+SELECT *
+FROM taskProjectOutbox;
+
+countProjectOutbox:
+SELECT COUNT(*)
+FROM taskProjectOutbox;
+
+selectProjectOutboxByProjectId:
+SELECT *
+FROM taskProjectOutbox
+WHERE projectId = :projectId;
+
+upsertProjectOutbox:
+INSERT OR REPLACE INTO taskProjectOutbox(
+    operationId,
+    projectId,
+    kind,
+    baseJson,
+    desiredJson,
+    enqueuedAtEpochMillis
+)
+VALUES (?, ?, ?, ?, ?, ?);
+
+deleteProjectOutboxByProjectId:
+DELETE FROM taskProjectOutbox
+WHERE projectId = :projectId;
+
+selectProjectConflicts:
+SELECT *
+FROM taskProjectConflict
+ORDER BY detectedAtEpochMillis DESC;
+
+countProjectConflicts:
+SELECT COUNT(*)
+FROM taskProjectConflict;
+
+selectProjectConflictByProjectId:
+SELECT *
+FROM taskProjectConflict
+WHERE projectId = :projectId;
+
+upsertProjectConflict:
+INSERT OR REPLACE INTO taskProjectConflict(
+    projectId,
+    kind,
+    baseJson,
+    localJson,
+    remoteJson,
+    fields,
+    detectedAtEpochMillis
+)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
+deleteProjectConflictByProjectId:
+DELETE FROM taskProjectConflict
+WHERE projectId = :projectId;

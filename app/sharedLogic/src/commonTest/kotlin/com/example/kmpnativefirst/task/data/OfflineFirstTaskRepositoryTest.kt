@@ -1,6 +1,7 @@
 package com.example.kmpnativefirst.task.data
 
 import com.example.kmpnativefirst.task.TaskPriority
+import com.example.kmpnativefirst.task.TaskProjectColor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
@@ -46,19 +47,27 @@ class OfflineFirstTaskRepositoryTest {
     @Test
     fun synchronizesAnOfflineCreateAndStoresTheServerRevision() = runTest {
         val ids = SequentialIds()
+        val project = taskProject()
         val repository = OfflineFirstTaskRepository(
-            local = InMemoryTaskLocalDataSource(),
+            local = InMemoryTaskLocalDataSource(initialProjects = listOf(project)),
             remote = FakeTaskRemoteDataSource(),
+            projectRemote = FakeTaskProjectRemoteDataSource(listOf(project)),
             clock = AdvancingClock(),
             idGenerator = ids::next,
         )
-        repository.create(TaskDraft(title = "Ship it"))
+        repository.create(
+            TaskDraft(
+                title = "Ship it",
+                projectId = PROJECT_ID_1,
+            ),
+        )
 
         val result = assertIs<TaskSyncResult.Success>(repository.sync())
 
         assertEquals(1, result.pushedCount)
         val item = repository.tasks.first().single()
         assertEquals(1, item.task.revision)
+        assertEquals(PROJECT_ID_1, item.task.projectId)
         assertEquals(TaskSyncState.SYNCED, item.syncState)
         assertEquals(0, repository.syncStatus.value.pendingCount)
     }
@@ -498,4 +507,143 @@ class OfflineFirstTaskRepositoryTest {
         assertFalse(repository.syncStatus.value.phase == TaskSyncPhase.SYNCING)
         assertNull(repository.syncStatus.value.lastError)
     }
+
+    @Test
+    fun synchronizesProjectsBeforeTasksThatReferenceThem() = runTest {
+        var projectAvailable = false
+        val projectRemote = object : FakeTaskProjectRemoteDataSource() {
+            override suspend fun createProject(
+                project: com.example.kmpnativefirst.task.TaskProject,
+            ): com.example.kmpnativefirst.task.TaskProject =
+                super.createProject(project).also { projectAvailable = true }
+        }
+        val taskRemote = object : FakeTaskRemoteDataSource() {
+            override suspend fun create(
+                task: com.example.kmpnativefirst.task.Task,
+            ): com.example.kmpnativefirst.task.Task {
+                assertTrue(projectAvailable)
+                return super.create(task)
+            }
+        }
+        val repository = OfflineFirstTaskRepository(
+            local = InMemoryTaskLocalDataSource(),
+            remote = taskRemote,
+            projectRemote = projectRemote,
+            clock = AdvancingClock(),
+            idGenerator = SequentialIds(
+                ArrayDeque(
+                    listOf(
+                        PROJECT_ID_1,
+                        "10000000-0000-0000-0000-000000000001",
+                        TASK_ID_1,
+                        "10000000-0000-0000-0000-000000000002",
+                    ),
+                ),
+            )::next,
+        )
+        val project = repository.createProject(
+            TaskProjectDraft("  Work  ", TaskProjectColor.PURPLE),
+        )
+        repository.create(
+            TaskDraft(title = "Ship", projectId = project.id),
+        )
+
+        val result = assertIs<TaskSyncResult.Success>(repository.sync())
+
+        assertEquals(2, result.pushedCount)
+        assertEquals("Work", repository.projects.first().single().project.name)
+        assertEquals(TaskSyncState.SYNCED, repository.projects.first().single().syncState)
+        assertEquals(project.id, repository.tasks.first().single().task.projectId)
+        assertEquals(0, repository.syncStatus.value.pendingCount)
+    }
+
+    @Test
+    fun deletesAProjectOnlyAfterUnassigningItsTasks() = runTest {
+        val project = taskProject()
+        val assigned = task(projectId = project.id)
+        val taskRemote = FakeTaskRemoteDataSource(listOf(assigned))
+        val projectRemote = FakeTaskProjectRemoteDataSource(listOf(project))
+        val repository = OfflineFirstTaskRepository(
+            local = InMemoryTaskLocalDataSource(
+                initialTasks = listOf(assigned),
+                initialProjects = listOf(project),
+            ),
+            remote = taskRemote,
+            projectRemote = projectRemote,
+            clock = AdvancingClock(),
+            idGenerator = SequentialIds()::next,
+        )
+
+        repository.deleteProject(project.id)
+
+        assertNull(repository.tasks.first().single().task.projectId)
+        assertTrue(repository.projects.first().isEmpty())
+        assertEquals(2, repository.syncStatus.value.pendingCount)
+
+        val result = assertIs<TaskSyncResult.Success>(repository.sync())
+
+        assertEquals(2, result.pushedCount)
+        assertNull(taskRemote.find(assigned.id)?.projectId)
+        assertNull(projectRemote.findProject(project.id))
+        assertEquals(0, repository.syncStatus.value.pendingCount)
+    }
+
+    @Test
+    fun recordsAndResolvesConcurrentProjectEdits() = runTest {
+        val base = taskProject(name = "Personal")
+        val remoteProject = base.copy(name = "Private", revision = 2)
+        val repository = OfflineFirstTaskRepository(
+            local = InMemoryTaskLocalDataSource(initialProjects = listOf(base)),
+            remote = FakeTaskRemoteDataSource(),
+            projectRemote = FakeTaskProjectRemoteDataSource(listOf(remoteProject)),
+            clock = AdvancingClock(),
+            idGenerator = { "10000000-0000-0000-0000-000000000001" },
+        )
+        repository.updateProject(
+            base.id,
+            base.toEdit().copy(name = "Home"),
+        )
+
+        val first = assertIs<TaskSyncResult.Success>(repository.sync())
+
+        assertEquals(1, first.conflictCount)
+        assertEquals(
+            setOf(TaskProjectConflictField.NAME),
+            repository.projectConflicts.first().single().conflictingFields,
+        )
+        assertEquals(
+            TaskSyncState.CONFLICT,
+            repository.projects.first().single().syncState,
+        )
+
+        repository.resolveProjectConflict(
+            base.id,
+            TaskProjectConflictResolution.KeepLocal,
+        )
+        val second = assertIs<TaskSyncResult.Success>(repository.sync())
+
+        assertEquals(1, second.pushedCount)
+        assertEquals("Home", repository.projects.first().single().project.name)
+        assertEquals(
+            TaskSyncState.SYNCED,
+            repository.projects.first().single().syncState,
+        )
+    }
+
+    @Test
+    fun rejectsAssignmentToAProjectThatIsNotCached() = runTest {
+        val repository = OfflineFirstTaskRepository(
+            local = InMemoryTaskLocalDataSource(),
+            remote = FakeTaskRemoteDataSource(),
+        )
+
+        assertFailsWith<CachedTaskProjectNotFoundException> {
+            repository.create(
+                TaskDraft(title = "Orphan", projectId = PROJECT_ID_1),
+            )
+        }
+
+        assertTrue(repository.tasks.first().isEmpty())
+    }
+
 }

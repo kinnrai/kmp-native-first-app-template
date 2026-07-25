@@ -10,6 +10,7 @@ import java.nio.file.Path
 import java.util.Properties
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SqlDelightTaskLocalDataSourceTest {
@@ -51,6 +52,7 @@ class SqlDelightTaskLocalDataSourceTest {
                 source.applyCreate(
                     task = task(
                         title = "Persist me",
+                        projectId = PROJECT_ID,
                         dueDate = LocalDate(2026, 8, 1),
                         revision = 0,
                     ),
@@ -62,6 +64,7 @@ class SqlDelightTaskLocalDataSourceTest {
             open(path).useSource { reopened ->
                 val item = reopened.observeTasks().first().single()
                 assertEquals("Persist me", item.task.title)
+                assertEquals(PROJECT_ID, item.task.projectId)
                 assertEquals(LocalDate(2026, 8, 1), item.task.dueDate)
                 assertEquals(TaskSyncState.PENDING, item.syncState)
                 assertEquals(TaskMutationKind.CREATE, reopened.nextMutation()?.kind)
@@ -130,6 +133,76 @@ class SqlDelightTaskLocalDataSourceTest {
         }
     }
 
+    @Test
+    fun persistsProjectsAndTheirOutboxAcrossReopen() = runTest {
+        val path = Files.createTempFile("task-project-cache-", ".db")
+        Files.delete(path)
+        try {
+            val project = taskProject(revision = 0)
+            open(path).useSource { source ->
+                source.applyProjectCreate(
+                    project,
+                    operationId = "create-project",
+                    enqueuedAt = TEST_INSTANT,
+                )
+            }
+
+            open(path).useSource { reopened ->
+                assertEquals(project, reopened.findProject(project.id)?.project)
+                assertEquals(
+                    TaskSyncState.PENDING,
+                    reopened.findProject(project.id)?.syncState,
+                )
+                assertEquals(
+                    "create-project",
+                    reopened.nextProjectMutation(false)?.operationId,
+                )
+                assertEquals(1, reopened.pendingProjectCount())
+            }
+        } finally {
+            Files.deleteIfExists(path)
+            Files.deleteIfExists(Path.of("$path-shm"))
+            Files.deleteIfExists(Path.of("$path-wal"))
+        }
+    }
+
+    @Test
+    fun deletesAProjectAndUnassignsTasksInOneDatabaseTransaction() = runTest {
+        val path = Files.createTempFile("task-project-cache-", ".db")
+        Files.delete(path)
+        try {
+            open(path).useSource { source ->
+                val project = taskProject()
+                val assigned = task(projectId = project.id)
+                source.replaceRemoteProjectSnapshot(
+                    listOf(project),
+                    taskOperationId = { "unused" },
+                    changedAt = TEST_INSTANT,
+                )
+                source.replaceRemoteSnapshot(listOf(assigned))
+
+                source.applyProjectDelete(
+                    projectId = project.id,
+                    operationId = "delete-project",
+                    taskOperationId = { "unassign-task" },
+                    enqueuedAt = TEST_INSTANT,
+                )
+
+                assertNull(source.findProject(project.id))
+                assertNull(source.findTask(assigned.id)?.task?.projectId)
+                assertEquals(TaskMutationKind.UPDATE, source.nextMutation()?.kind)
+                assertEquals(
+                    TaskMutationKind.DELETE,
+                    source.nextProjectMutation(true)?.kind,
+                )
+            }
+        } finally {
+            Files.deleteIfExists(path)
+            Files.deleteIfExists(Path.of("$path-shm"))
+            Files.deleteIfExists(Path.of("$path-wal"))
+        }
+    }
+
     private fun open(path: Path): SqlDelightTaskLocalDataSource {
         val driver = JdbcSqliteDriver(
             url = "jdbc:sqlite:$path",
@@ -145,5 +218,9 @@ class SqlDelightTaskLocalDataSourceTest {
         block(this)
     } finally {
         close()
+    }
+
+    private companion object {
+        const val PROJECT_ID = "22222222-2222-4222-8222-222222222222"
     }
 }
