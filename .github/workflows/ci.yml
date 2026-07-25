@@ -44,8 +44,10 @@ jobs:
           :app:desktopApp:check
           :app:sharedUI:testAndroidHostTest
           :app:sharedLogic:testAndroidHostTest
+          :core:testAndroidHostTest
           :app:sharedUI:jvmTest
           :app:sharedLogic:jvmTest
+          :core:jvmTest
           :server:test
 
   web:
@@ -76,7 +78,10 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Build shared Kotlin/JS library
-        run: ./gradlew --no-daemon --stacktrace :app:sharedLogic:jsBrowserProductionLibraryDistribution
+        run: >-
+          ./gradlew --no-daemon --stacktrace
+          :core:jsBrowserTest
+          :app:sharedLogic:jsBrowserProductionLibraryDistribution
 
       - name: Install web dependencies
         run: npm ci
@@ -105,7 +110,10 @@ jobs:
           cache-provider: basic
 
       - name: Run iOS simulator tests
-        run: ./gradlew --no-daemon --stacktrace :app:sharedLogic:iosSimulatorArm64Test
+        run: >-
+          ./gradlew --no-daemon --stacktrace
+          :core:iosSimulatorArm64Test
+          :app:sharedLogic:iosSimulatorArm64Test
 
       - name: Build iOS application
         run: >-
@@ -139,7 +147,10 @@ jobs:
           cache-provider: basic
 
       - name: Run macOS tests
-        run: ./gradlew --no-daemon --stacktrace :app:sharedLogic:macosArm64Test
+        run: >-
+          ./gradlew --no-daemon --stacktrace
+          :core:macosArm64Test
+          :app:sharedLogic:macosArm64Test
 
       - name: Build macOS application
         run: >-
