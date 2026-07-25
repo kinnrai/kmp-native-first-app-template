@@ -1,6 +1,11 @@
 import Observation
 import SwiftUI
 
+private struct TaskNotificationNavigationState: Equatable {
+  let route: TaskNotificationRoute?
+  let isAvailable: Bool
+}
+
 @MainActor
 @Observable
 final class MacTaskCommandModel {
@@ -36,6 +41,7 @@ final class MacTaskCommandModel {
 struct ContentView: View {
   @Environment(TaskStore.self) private var store
   @Environment(MacTaskCommandModel.self) private var commands
+  @Environment(TaskNotificationCoordinator.self) private var notifications
 
   @State private var searchText = ""
   @State private var taskEditor: TaskEditorPresentation?
@@ -44,9 +50,13 @@ struct ContentView: View {
   @State private var isConfirmingClearCompleted = false
 
   var body: some View {
+    observedContent(presentedContent(navigationContent))
+  }
+
+  private var navigationContent: some View {
     @Bindable var commands = commands
 
-    NavigationSplitView {
+    return NavigationSplitView {
       sidebar(selection: $commands.collectionSelection)
     } content: {
       List(selection: $commands.selectedTaskID) {
@@ -153,6 +163,12 @@ struct ContentView: View {
         }
       }
     }
+  }
+
+  private func presentedContent<Content: View>(
+    _ content: Content
+  ) -> some View {
+    content
     .sheet(item: $taskEditor) { presentation in
       TaskEditorView(presentation: presentation) { draft in
         saveTask(presentation, draft: draft)
@@ -197,7 +213,7 @@ struct ContentView: View {
       Text("Completed tasks are deleted locally and synchronized later if you are offline.")
     }
     .alert(
-      "Task operation failed",
+      store.presentedError?.title ?? "Task Operation Failed",
       isPresented: Binding(
         get: { store.presentedError != nil },
         set: { if !$0 { store.dismissError() } }
@@ -209,6 +225,12 @@ struct ContentView: View {
     } message: {
       Text(store.presentedError?.message ?? "")
     }
+  }
+
+  private func observedContent<Content: View>(
+    _ content: Content
+  ) -> some View {
+    content
     .onChange(of: commands.newTaskRequest) {
       presentNewTask()
     }
@@ -237,6 +259,9 @@ struct ContentView: View {
     }
     .onChange(of: store.projectConflicts) {
       normalizeSelection()
+    }
+    .onChange(of: notificationNavigationState) {
+      openNotificationTaskIfAvailable()
     }
   }
 
@@ -330,6 +355,17 @@ struct ContentView: View {
     store.projectConflicts.filter { store.project(id: $0.id) == nil }
   }
 
+  private var notificationNavigationState: TaskNotificationNavigationState {
+    let route = notifications.route
+    let taskID = route?.taskID
+    return TaskNotificationNavigationState(
+      route: route,
+      isAvailable: taskID.map {
+        store.task(id: $0) != nil || store.conflict(taskID: $0) != nil
+      } ?? false
+    )
+  }
+
   private var visibleTasks: [TaskRecord] {
     store.filteredTasks(selection: selectedCollection, searchText: searchText)
   }
@@ -374,6 +410,19 @@ struct ContentView: View {
     if store.displayedProject(id: projectID) == nil {
       commands.collectionSelection = .smart(.inbox)
     }
+  }
+
+  private func openNotificationTaskIfAvailable() {
+    guard
+      let route = notifications.route,
+      store.task(id: route.taskID) != nil || store.conflict(taskID: route.taskID) != nil
+    else {
+      return
+    }
+    notifications.consumeRoute()
+    commands.collectionSelection = .smart(.all)
+    searchText = ""
+    commands.selectedTaskID = route.taskID
   }
 
   private func saveTask(
@@ -490,4 +539,5 @@ struct MacTaskCommands: Commands {
   ContentView()
     .environment(TaskStore(baseURL: URL(string: "http://127.0.0.1:8080")!))
     .environment(MacTaskCommandModel())
+    .environment(TaskNotificationCoordinator())
 }

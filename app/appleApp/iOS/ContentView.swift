@@ -1,10 +1,17 @@
 import SwiftUI
 
+private struct TaskNotificationNavigationState: Equatable {
+  let route: TaskNotificationRoute?
+  let isAvailable: Bool
+}
+
 struct ContentView: View {
   @Environment(TaskStore.self) private var store
+  @Environment(TaskNotificationCoordinator.self) private var notifications
 
   @State private var selection: TaskCollectionSelection? = .smart(.inbox)
   @State private var searchText = ""
+  @State private var taskPath: [String] = []
   @State private var taskEditor: TaskEditorPresentation?
   @State private var projectEditor: TaskProjectEditorPresentation?
   @State private var projectPendingDeletion: TaskProjectRecord?
@@ -14,7 +21,7 @@ struct ContentView: View {
     NavigationSplitView {
       sidebar
     } detail: {
-      NavigationStack {
+      NavigationStack(path: $taskPath) {
         taskList
           .navigationDestination(for: String.self) { taskID in
             TaskDetailDestination(taskID: taskID)
@@ -66,7 +73,7 @@ struct ContentView: View {
       Text("Completed tasks are deleted locally and synchronized later if you are offline.")
     }
     .alert(
-      "Task operation failed",
+      store.presentedError?.title ?? "Task Operation Failed",
       isPresented: Binding(
         get: { store.presentedError != nil },
         set: { if !$0 { store.dismissError() } }
@@ -83,6 +90,9 @@ struct ContentView: View {
     }
     .onChange(of: store.projectConflicts) {
       normalizeSelection()
+    }
+    .onChange(of: notificationNavigationState) {
+      openNotificationTaskIfAvailable()
     }
   }
 
@@ -329,6 +339,17 @@ struct ContentView: View {
     store.projectConflicts.filter { store.project(id: $0.id) == nil }
   }
 
+  private var notificationNavigationState: TaskNotificationNavigationState {
+    let route = notifications.route
+    let taskID = route?.taskID
+    return TaskNotificationNavigationState(
+      route: route,
+      isAvailable: taskID.map {
+        store.task(id: $0) != nil || store.conflict(taskID: $0) != nil
+      } ?? false
+    )
+  }
+
   private var visibleTasks: [TaskRecord] {
     store.filteredTasks(selection: selectedCollection, searchText: searchText)
   }
@@ -350,6 +371,19 @@ struct ContentView: View {
     if store.displayedProject(id: projectID) == nil {
       selection = .smart(.inbox)
     }
+  }
+
+  private func openNotificationTaskIfAvailable() {
+    guard
+      let route = notifications.route,
+      store.task(id: route.taskID) != nil || store.conflict(taskID: route.taskID) != nil
+    else {
+      return
+    }
+    notifications.consumeRoute()
+    selection = .smart(.all)
+    searchText = ""
+    taskPath = [route.taskID]
   }
 
   private func saveTask(
@@ -400,4 +434,5 @@ private struct TaskDetailDestination: View {
 #Preview {
   ContentView()
     .environment(TaskStore(baseURL: URL(string: "http://127.0.0.1:8080")!))
+    .environment(TaskNotificationCoordinator())
 }
