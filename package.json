@@ -6,6 +6,9 @@
     "app/webApp",
     "app/sharedLogic/build/dist/js/productionLibrary"
   ],
+  "overrides": {
+    "ws": "8.21.1"
+  },
   "scripts": {
     "build:shared": "./gradlew :app:sharedLogic:jsBrowserProductionLibraryDistribution",
     "dev": "npm run build:shared && npm run dev -w web-app",

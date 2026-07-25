@@ -1,0 +1,149 @@
+import kotlin.Boolean;
+
+CREATE TABLE cachedTask (
+    id TEXT NOT NULL PRIMARY KEY,
+    title TEXT NOT NULL,
+    notes TEXT,
+    priority TEXT NOT NULL,
+    dueAtEpochMillis INTEGER,
+    isCompleted INTEGER AS Boolean NOT NULL,
+    createdAtEpochMillis INTEGER NOT NULL,
+    updatedAtEpochMillis INTEGER NOT NULL,
+    revision INTEGER NOT NULL,
+    syncState TEXT NOT NULL,
+    isDeleted INTEGER AS Boolean NOT NULL
+);
+
+CREATE TABLE taskOutbox (
+    operationId TEXT NOT NULL PRIMARY KEY,
+    taskId TEXT NOT NULL UNIQUE,
+    kind TEXT NOT NULL,
+    baseJson TEXT,
+    desiredJson TEXT,
+    enqueuedAtEpochMillis INTEGER NOT NULL
+);
+
+CREATE INDEX taskOutbox_enqueuedAt
+ON taskOutbox(enqueuedAtEpochMillis);
+
+CREATE TABLE taskConflict (
+    taskId TEXT NOT NULL PRIMARY KEY,
+    kind TEXT NOT NULL,
+    baseJson TEXT,
+    localJson TEXT,
+    remoteJson TEXT,
+    fields TEXT NOT NULL,
+    detectedAtEpochMillis INTEGER NOT NULL
+);
+
+selectVisibleTasks:
+SELECT *
+FROM cachedTask
+WHERE isDeleted = 0
+ORDER BY
+    isCompleted ASC,
+    CASE WHEN dueAtEpochMillis IS NULL THEN 1 ELSE 0 END,
+    dueAtEpochMillis ASC,
+    updatedAtEpochMillis DESC;
+
+selectAllTasks:
+SELECT *
+FROM cachedTask;
+
+selectTaskById:
+SELECT *
+FROM cachedTask
+WHERE id = :id;
+
+upsertTask:
+INSERT OR REPLACE INTO cachedTask(
+    id,
+    title,
+    notes,
+    priority,
+    dueAtEpochMillis,
+    isCompleted,
+    createdAtEpochMillis,
+    updatedAtEpochMillis,
+    revision,
+    syncState,
+    isDeleted
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+deleteTaskById:
+DELETE FROM cachedTask
+WHERE id = :id;
+
+selectNextOutbox:
+SELECT *
+FROM taskOutbox
+ORDER BY enqueuedAtEpochMillis ASC, operationId ASC
+LIMIT 1;
+
+selectAllOutbox:
+SELECT *
+FROM taskOutbox;
+
+countOutbox:
+SELECT COUNT(*)
+FROM taskOutbox;
+
+selectOutboxByTaskId:
+SELECT *
+FROM taskOutbox
+WHERE taskId = :taskId;
+
+selectOutboxByOperationId:
+SELECT *
+FROM taskOutbox
+WHERE operationId = :operationId;
+
+upsertOutbox:
+INSERT OR REPLACE INTO taskOutbox(
+    operationId,
+    taskId,
+    kind,
+    baseJson,
+    desiredJson,
+    enqueuedAtEpochMillis
+)
+VALUES (?, ?, ?, ?, ?, ?);
+
+deleteOutboxByTaskId:
+DELETE FROM taskOutbox
+WHERE taskId = :taskId;
+
+deleteOutboxByOperationId:
+DELETE FROM taskOutbox
+WHERE operationId = :operationId;
+
+selectConflicts:
+SELECT *
+FROM taskConflict
+ORDER BY detectedAtEpochMillis DESC;
+
+countConflicts:
+SELECT COUNT(*)
+FROM taskConflict;
+
+selectConflictByTaskId:
+SELECT *
+FROM taskConflict
+WHERE taskId = :taskId;
+
+upsertConflict:
+INSERT OR REPLACE INTO taskConflict(
+    taskId,
+    kind,
+    baseJson,
+    localJson,
+    remoteJson,
+    fields,
+    detectedAtEpochMillis
+)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
+deleteConflictByTaskId:
+DELETE FROM taskConflict
+WHERE taskId = :taskId;
