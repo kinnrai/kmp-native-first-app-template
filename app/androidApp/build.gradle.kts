@@ -5,6 +5,9 @@ plugins {
     alias(libs.plugins.composeCompiler)
 }
 
+val taskApiBaseUrl = providers.gradleProperty("taskApiBaseUrl")
+    .orElse("http://10.0.2.2:8080")
+
 kotlin {
     compilerOptions {
         jvmTarget = JvmTarget.JVM_11
@@ -35,6 +38,11 @@ android {
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = 1
         versionName = "1.0"
+        buildConfigField(
+            "String",
+            "TASK_API_BASE_URL",
+            "\"${taskApiBaseUrl.get()}\"",
+        )
     }
     packaging {
         resources {
@@ -55,6 +63,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
     buildFeatures {
+        buildConfig = true
         compose = true
     }
 }

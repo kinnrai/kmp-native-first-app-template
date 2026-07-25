@@ -99,6 +99,7 @@ internal class OfflineFirstTaskRepository(
     override suspend fun clearCompleted() {
         tasks.first()
             .asSequence()
+            .filter { it.syncState != TaskSyncState.CONFLICT }
             .map(TaskItem::task)
             .filter(Task::isCompleted)
             .map(Task::id)

@@ -402,6 +402,36 @@ class OfflineFirstTaskRepositoryTest {
     }
 
     @Test
+    fun leavesConflictedCompletedTasksForExplicitResolutionWhenClearing() = runTest {
+        val conflicted = task(id = TASK_ID_1, title = "Base", isCompleted = true)
+        val clearable = task(id = TASK_ID_2, title = "Clearable", isCompleted = true)
+        val repository = OfflineFirstTaskRepository(
+            local = InMemoryTaskLocalDataSource(listOf(conflicted, clearable)),
+            remote = FakeTaskRemoteDataSource(
+                listOf(
+                    conflicted.copy(title = "Remote", revision = 2),
+                    clearable,
+                ),
+            ),
+            clock = AdvancingClock(),
+            idGenerator = { "operation" },
+        )
+        repository.update(
+            conflicted.id,
+            conflicted.toEdit().copy(title = "Local"),
+        )
+        repository.sync()
+
+        repository.clearCompleted()
+
+        val remaining = repository.tasks.first().single()
+        assertEquals(TASK_ID_1, remaining.task.id)
+        assertEquals(TaskSyncState.CONFLICT, remaining.syncState)
+        assertEquals(1, repository.conflicts.first().size)
+        assertEquals(1, repository.syncStatus.value.pendingCount)
+    }
+
+    @Test
     fun keepsInvalidInputOutOfTheLocalDatabase() = runTest {
         val repository = OfflineFirstTaskRepository(
             local = InMemoryTaskLocalDataSource(),
