@@ -55,6 +55,24 @@ export function DeleteIcon(props: IconProps) {
   );
 }
 
+export function EditIcon(props: IconProps) {
+  return (
+    <IconFrame {...props}>
+      <path d="m4 20 4.2-1 10.6-10.6a2 2 0 0 0-2.8-2.8L5.4 16.2 4 20Z" />
+      <path d="m14.5 7.1 2.8 2.8" />
+    </IconFrame>
+  );
+}
+
+export function FolderIcon(props: IconProps) {
+  return (
+    <IconFrame {...props}>
+      <path d="M3 6.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6.5Z" />
+      <path d="M3 10h18" />
+    </IconFrame>
+  );
+}
+
 export function InboxIcon(props: IconProps) {
   return (
     <IconFrame {...props}>

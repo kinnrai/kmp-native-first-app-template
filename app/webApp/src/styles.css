@@ -109,6 +109,7 @@ svg {
   background:
     linear-gradient(165deg, rgb(255 255 255 / 7%), transparent 38%),
     #1c2140;
+  overflow: hidden;
 }
 
 .brand {
@@ -157,6 +158,13 @@ svg {
   margin-top: 2.5rem;
 }
 
+.sidebar-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(255 255 255 / 16%) transparent;
+}
+
 .filter-button {
   display: flex;
   align-items: center;
@@ -200,6 +208,188 @@ svg {
 .filter-button.active .filter-count {
   color: white;
   background: rgb(119 121 255 / 42%);
+}
+
+.project-nav {
+  margin-top: 1.8rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid rgb(255 255 255 / 10%);
+}
+
+.project-nav-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 2rem;
+  padding: 0 0.55rem 0.45rem 0.85rem;
+  color: #8e96b7;
+  font-size: 0.67rem;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.sidebar-icon-button {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 auto;
+  padding: 0;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 0.6rem;
+  color: #aeb4d2;
+  background: transparent;
+  cursor: pointer;
+}
+
+.sidebar-icon-button:not(:disabled):hover {
+  border-color: rgb(255 255 255 / 10%);
+  color: white;
+  background: rgb(255 255 255 / 7%);
+}
+
+.sidebar-icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.sidebar-icon-button svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.project-list {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.project-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  border-radius: 0.75rem;
+  transition: background 160ms ease;
+}
+
+.project-row:hover {
+  background: rgb(255 255 255 / 6%);
+}
+
+.project-row.active {
+  background: rgb(119 121 255 / 20%);
+}
+
+.project-row.has-conflict {
+  background: rgb(255 200 87 / 10%);
+}
+
+.project-button {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+  min-height: 2.7rem;
+  padding: 0.5rem 0.25rem 0.5rem 0.85rem;
+  border: 0;
+  color: #bfc5df;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.project-row.active .project-button,
+.project-button:hover {
+  color: white;
+}
+
+.project-name {
+  overflow: hidden;
+  flex: 1;
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-dot {
+  width: 0.58rem;
+  height: 0.58rem;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 16%, transparent);
+}
+
+.project-action {
+  margin-right: 0.25rem;
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+
+.project-row:hover .project-action,
+.project-row.has-conflict .project-action,
+.project-action:focus-visible {
+  opacity: 1;
+}
+
+.project-row.has-conflict .project-action {
+  color: #ffc857;
+}
+
+.project-nav-empty {
+  margin: 0.25rem 0.85rem 0;
+  color: #8e96b7;
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
+.detached-project-conflict {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: calc(100% - 0.5rem);
+  min-height: 2.5rem;
+  margin: 0.35rem 0.25rem 0;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid rgb(255 200 87 / 22%);
+  border-radius: 0.7rem;
+  color: #ffc857;
+  background: rgb(255 200 87 / 8%);
+  cursor: pointer;
+  font-size: 0.72rem;
+  text-align: left;
+}
+
+.detached-project-conflict svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.project-color-blue {
+  color: #4f73e8;
+}
+
+.project-color-green {
+  color: #319364;
+}
+
+.project-color-orange {
+  color: #e57a24;
+}
+
+.project-color-purple {
+  color: #8057d5;
+}
+
+.project-color-rose {
+  color: #d94f70;
+}
+
+.project-color-slate {
+  color: #64748b;
 }
 
 .sidebar-footer {
@@ -399,6 +589,17 @@ svg {
   color: #8a5300;
   background: var(--warning-soft);
   font-size: 0.75rem;
+}
+
+.button-danger {
+  border-color: #f0c7ce;
+  color: var(--danger);
+  background: #fff7f8;
+}
+
+.button-danger:not(:disabled):hover {
+  border-color: #e9acb6;
+  background: #fff0f2;
 }
 
 .content-column {
@@ -706,6 +907,22 @@ svg {
   font-size: 0.68rem;
 }
 
+.task-project {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: 14rem;
+  overflow: hidden;
+  color: #596176;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-project .project-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+}
+
 .due.overdue {
   color: var(--danger);
   font-weight: 650;
@@ -932,6 +1149,10 @@ svg {
   gap: 1rem;
 }
 
+.field-grid .field-wide {
+  grid-column: 1 / -1;
+}
+
 .completion-field {
   display: flex;
   align-items: center;
@@ -1066,6 +1287,112 @@ svg {
   padding: 1rem 0 1.5rem;
 }
 
+.project-editor-dialog {
+  width: min(100%, 36rem);
+}
+
+.color-field {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.color-field legend {
+  margin-bottom: 0.55rem;
+  color: #414b60;
+  font-size: 0.76rem;
+  font-weight: 650;
+}
+
+.color-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.color-option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+  min-height: 3rem;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  cursor: pointer;
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+.color-option:hover {
+  border-color: currentColor;
+}
+
+.color-option:has(input:checked) {
+  border-color: currentColor;
+  background: color-mix(in srgb, currentColor 7%, var(--surface));
+  box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 14%, transparent);
+}
+
+.color-option input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.color-option:has(input:focus-visible) {
+  outline: 3px solid rgb(91 92 226 / 24%);
+  outline-offset: 2px;
+}
+
+.color-swatch,
+.project-symbol {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 0.6rem;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.color-swatch svg,
+.project-symbol svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.project-dialog-actions .dialog-action-spacer {
+  flex: 1;
+}
+
+.project-version-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.project-version {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  min-height: 7rem;
+}
+
+.project-version h3,
+.project-version p {
+  margin: 0;
+}
+
+.project-version p {
+  margin-top: 0.25rem;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  text-transform: capitalize;
+}
+
 .toast {
   position: fixed;
   z-index: 30;
@@ -1150,15 +1477,75 @@ svg {
     padding: 0.85rem 1rem;
   }
 
+  .sidebar-scroll {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
   .filter-nav {
     display: flex;
     justify-content: flex-end;
     margin: 0;
   }
 
+  .project-nav {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin: 0;
+    padding: 0 0 0 0.8rem;
+    border-top: 0;
+    border-left: 1px solid rgb(255 255 255 / 10%);
+  }
+
+  .project-nav-heading {
+    gap: 0.2rem;
+    padding: 0;
+  }
+
+  .project-nav-heading > span,
+  .project-nav-empty {
+    display: none;
+  }
+
+  .project-list {
+    display: flex;
+    gap: 0.2rem;
+  }
+
+  .project-row {
+    flex: 0 0 auto;
+  }
+
+  .project-button {
+    min-height: 2.4rem;
+    padding: 0.4rem 0.55rem;
+  }
+
+  .project-button .filter-count {
+    display: none;
+  }
+
+  .project-action {
+    opacity: 1;
+  }
+
+  .detached-project-conflict {
+    width: auto;
+    margin: 0;
+    white-space: nowrap;
+  }
+
   .filter-button {
     min-height: 2.4rem;
-    padding: 0.45rem 0.65rem;
+    padding: 0.45rem;
+  }
+
+  .filter-nav .filter-count {
+    display: none;
   }
 
   .sidebar-footer {
@@ -1181,6 +1568,11 @@ svg {
     align-items: stretch;
   }
 
+  .sidebar-scroll {
+    display: block;
+    overflow: visible;
+  }
+
   .brand {
     padding: 0;
   }
@@ -1193,6 +1585,42 @@ svg {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     margin-top: 0.75rem;
+  }
+
+  .project-nav {
+    display: block;
+    margin-top: 0.8rem;
+    padding: 0.7rem 0 0;
+    border-top: 1px solid rgb(255 255 255 / 10%);
+    border-left: 0;
+  }
+
+  .project-nav-heading {
+    display: flex;
+    padding: 0 0.15rem 0.35rem 0.4rem;
+  }
+
+  .project-nav-heading > span {
+    display: inline;
+  }
+
+  .project-list {
+    display: flex;
+    overflow-x: auto;
+    padding-bottom: 0.2rem;
+  }
+
+  .project-action {
+    display: grid;
+  }
+
+  .project-row .project-action {
+    opacity: 1;
+  }
+
+  .detached-project-conflict {
+    width: 100%;
+    margin-top: 0.35rem;
   }
 
   .filter-button {
@@ -1229,13 +1657,24 @@ svg {
   .task-row > .delete-button,
   .task-row > .button-warning {
     grid-column: 2;
-    justify-self: start;
     opacity: 1;
+  }
+
+  .task-row > .delete-button {
+    justify-self: end;
+  }
+
+  .task-row > .button-warning {
+    justify-self: start;
   }
 
   .version-grid,
   .field-grid {
     grid-template-columns: 1fr;
+  }
+
+  .color-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .conflict-actions {
@@ -1245,6 +1684,15 @@ svg {
 
   .dialog-actions .button {
     flex: 1;
+  }
+
+  .project-dialog-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .project-dialog-actions .dialog-action-spacer {
+    display: none;
   }
 }
 
@@ -1338,6 +1786,12 @@ svg {
     background: #1d2130;
   }
 
+  .button-danger {
+    border-color: #633943;
+    color: #f0adb7;
+    background: #352126;
+  }
+
   .search-field:focus-within,
   .field input:focus,
   .field select:focus,
@@ -1356,8 +1810,13 @@ svg {
 
   .field > span,
   .completion-field > span,
+  .color-field legend,
   .version-card dd {
     color: #c8cddd;
+  }
+
+  .task-project {
+    color: #a3aabd;
   }
 
   .status-banner.offline {

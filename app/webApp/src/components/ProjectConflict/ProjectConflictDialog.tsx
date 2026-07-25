@@ -1,43 +1,36 @@
 import { useId, useState } from 'react';
 import type { KeyboardEvent, MouseEvent } from 'react';
 import type {
-  WebTask,
-  WebTaskConflict,
-  WebTaskProjectItem,
+  WebTaskProject,
+  WebTaskProjectConflict,
 } from 'shared-logic';
 import type { TaskActions } from '../../taskActions.ts';
-import { formatDueDate } from '../../taskView.ts';
-import { CloseIcon, WarningIcon } from '../Icons.tsx';
+import { CloseIcon, FolderIcon, WarningIcon } from '../Icons.tsx';
 import {
-  TaskEditorDialog,
-} from '../TaskEditor/TaskEditorDialog.tsx';
-import type { TaskEditorValues } from '../TaskEditor/TaskEditorDialog.tsx';
+  ProjectEditorDialog,
+} from '../ProjectEditor/ProjectEditorDialog.tsx';
+import type {
+  ProjectEditorValues,
+} from '../ProjectEditor/ProjectEditorDialog.tsx';
 
-interface TaskConflictDialogProps {
+interface ProjectConflictDialogProps {
   actions: TaskActions;
-  conflict: WebTaskConflict;
+  conflict: WebTaskProjectConflict;
   onClose(): void;
-  projects: readonly WebTaskProjectItem[];
 }
 
 const fieldNames: Record<string, string> = {
   creation: 'creation',
   deletion: 'deletion',
-  title: 'title',
-  notes: 'notes',
-  project: 'project',
-  priority: 'priority',
-  due_date: 'due date',
-  due_at: 'due date',
-  completion: 'completion',
+  name: 'name',
+  color: 'color',
 };
 
-export function TaskConflictDialog({
+export function ProjectConflictDialog({
   actions,
   conflict,
   onClose,
-  projects,
-}: TaskConflictDialogProps) {
+}: ProjectConflictDialogProps) {
   const headingId = useId();
   const [isMerging, setIsMerging] = useState(false);
   const mergeSource = conflict.local ?? conflict.remote;
@@ -47,30 +40,20 @@ export function TaskConflictDialog({
     onClose();
   };
 
-  const merge = (values: TaskEditorValues) => {
+  const merge = ({ name, color }: ProjectEditorValues) => {
     finish(() => {
-      actions.mergeConflict(
-        conflict.taskId,
-        values.title,
-        values.notes,
-        values.priority,
-        values.dueDate,
-        values.dueAt,
-        values.isCompleted,
-        values.projectId,
-      );
+      actions.mergeProjectConflict(conflict.projectId, name, color);
     });
   };
 
   if (isMerging && mergeSource) {
     return (
-      <TaskEditorDialog
-        heading="Merge task versions"
-        initialTask={mergeSource}
+      <ProjectEditorDialog
+        heading="Merge project versions"
+        initialProject={mergeSource}
         onCancel={() => setIsMerging(false)}
         onSubmit={merge}
-        projects={projects}
-        submitLabel="Save merged task"
+        submitLabel="Save merged project"
       />
     );
   }
@@ -101,12 +84,12 @@ export function TaskConflictDialog({
               <WarningIcon />
             </span>
             <div>
-              <p className="eyebrow">Sync conflict</p>
-              <h2 id={headingId}>Choose which changes to keep</h2>
+              <p className="eyebrow">Project sync conflict</p>
+              <h2 id={headingId}>Choose which project to keep</h2>
             </div>
           </div>
           <button
-            aria-label="Close conflict dialog"
+            aria-label="Close project conflict dialog"
             className="icon-button"
             onClick={onClose}
             type="button"
@@ -116,8 +99,8 @@ export function TaskConflictDialog({
         </header>
 
         <p className="conflict-explanation">
-          This task changed here and on the server before either version could
-          be synchronized. Review both versions before continuing.
+          This project changed here and on the server before either version
+          could be synchronized. Tasks remain safe while you choose.
         </p>
 
         <p className="conflict-fields">
@@ -130,22 +113,24 @@ export function TaskConflictDialog({
         </p>
 
         <div className="version-grid">
-          <TaskVersionCard
-            emptyLabel="You deleted this task"
+          <ProjectVersionCard
+            emptyLabel="You deleted this project"
             label="On this device"
-            task={conflict.local}
+            project={conflict.local}
           />
-          <TaskVersionCard
+          <ProjectVersionCard
             emptyLabel="Deleted on the server"
             label="On the server"
-            task={conflict.remote}
+            project={conflict.remote}
           />
         </div>
 
         <footer className="dialog-actions conflict-actions">
           <button
             className="button button-secondary"
-            onClick={() => finish(() => actions.useRemote(conflict.taskId))}
+            onClick={() =>
+              finish(() => actions.useRemoteProject(conflict.projectId))
+            }
             type="button"
           >
             {conflict.remote ? 'Use server version' : 'Accept server deletion'}
@@ -161,7 +146,9 @@ export function TaskConflictDialog({
           )}
           <button
             className="button button-primary"
-            onClick={() => finish(() => actions.keepLocal(conflict.taskId))}
+            onClick={() =>
+              finish(() => actions.keepLocalProject(conflict.projectId))
+            }
             type="button"
           >
             {conflict.local ? 'Keep my version' : 'Keep my deletion'}
@@ -172,41 +159,30 @@ export function TaskConflictDialog({
   );
 }
 
-interface TaskVersionCardProps {
+interface ProjectVersionCardProps {
   emptyLabel: string;
   label: string;
-  task: WebTask | null | undefined;
+  project: WebTaskProject | null | undefined;
 }
 
-function TaskVersionCard({
+function ProjectVersionCard({
   emptyLabel,
   label,
-  task,
-}: TaskVersionCardProps) {
+  project,
+}: ProjectVersionCardProps) {
   return (
-    <article className="version-card">
+    <article className="version-card project-version-card">
       <p className="version-label">{label}</p>
-      {task ? (
-        <>
-          <h3>{task.title}</h3>
-          <p>{task.notes || 'No notes'}</p>
-          <dl>
-            <div>
-              <dt>Priority</dt>
-              <dd>{task.priority}</dd>
-            </div>
-            <div>
-              <dt>Due</dt>
-              <dd>
-                {formatDueDate(task.dueDate, task.dueAt) ?? 'No due date'}
-              </dd>
-            </div>
-            <div>
-              <dt>Status</dt>
-              <dd>{task.isCompleted ? 'Completed' : 'Active'}</dd>
-            </div>
-          </dl>
-        </>
+      {project ? (
+        <div className="project-version">
+          <span className={`project-symbol project-color-${project.color}`}>
+            <FolderIcon />
+          </span>
+          <div>
+            <h3>{project.name}</h3>
+            <p>{project.color} project</p>
+          </div>
+        </div>
       ) : (
         <div className="deleted-version">
           <span aria-hidden="true">∅</span>

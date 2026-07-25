@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { WebTask, WebTaskConflict, WebTaskItem, WebTaskSnapshot } from 'shared-logic';
+import type {
+  WebTask,
+  WebTaskConflict,
+  WebTaskItem,
+  WebTaskProject,
+  WebTaskProjectConflict,
+  WebTaskProjectItem,
+  WebTaskSnapshot,
+} from 'shared-logic';
 import type { TaskActions } from '../../taskActions.ts';
 import {
   formatDueDate,
@@ -14,6 +22,8 @@ import {
   CheckIcon,
   ChevronIcon,
   DeleteIcon,
+  EditIcon,
+  FolderIcon,
   InboxIcon,
   SearchIcon,
   SyncIcon,
@@ -24,6 +34,15 @@ import {
 } from '../TaskEditor/TaskEditorDialog.tsx';
 import type { TaskEditorValues } from '../TaskEditor/TaskEditorDialog.tsx';
 import { TaskConflictDialog } from '../TaskConflict/TaskConflictDialog.tsx';
+import {
+  ProjectEditorDialog,
+} from '../ProjectEditor/ProjectEditorDialog.tsx';
+import type {
+  ProjectEditorValues,
+} from '../ProjectEditor/ProjectEditorDialog.tsx';
+import {
+  ProjectConflictDialog,
+} from '../ProjectConflict/ProjectConflictDialog.tsx';
 
 interface TaskAppProps {
   actions: TaskActions;
@@ -34,6 +53,10 @@ interface TaskAppProps {
 type EditorState =
   | { mode: 'create' }
   | { mode: 'edit'; task: WebTask };
+
+type ProjectEditorState =
+  | { mode: 'create' }
+  | { mode: 'edit'; item: WebTaskProjectItem };
 
 const filters: Array<{ value: TaskSmartView; label: string }> = [
   { value: 'all', label: 'All tasks' },
@@ -49,10 +72,14 @@ export function TaskApp({
   snapshot,
 }: TaskAppProps) {
   const [filter, setFilter] = useState<TaskSmartView>('inbox');
+  const [selectedProjectId, setSelectedProjectId] = useState<string>();
   const [query, setQuery] = useState('');
   const [editor, setEditor] = useState<EditorState>();
+  const [projectEditor, setProjectEditor] = useState<ProjectEditorState>();
   const [selectedConflict, setSelectedConflict] =
     useState<WebTaskConflict>();
+  const [selectedProjectConflict, setSelectedProjectConflict] =
+    useState<WebTaskProjectConflict>();
   const requestedInitialSync = useRef(false);
   const wasOnline = useRef(isOnline);
 
@@ -80,6 +107,29 @@ export function TaskApp({
     }
   }, [selectedConflict, snapshot.conflicts]);
 
+  useEffect(() => {
+    if (
+      selectedProjectConflict &&
+      !snapshot.projectConflicts.some(
+        (conflict) =>
+          conflict.projectId === selectedProjectConflict.projectId,
+      )
+    ) {
+      setSelectedProjectConflict(undefined);
+    }
+  }, [selectedProjectConflict, snapshot.projectConflicts]);
+
+  useEffect(() => {
+    if (
+      selectedProjectId &&
+      !snapshot.projects.some(
+        ({ project }) => project.id === selectedProjectId,
+      )
+    ) {
+      setSelectedProjectId(undefined);
+    }
+  }, [selectedProjectId, snapshot.projects]);
+
   const today = localDateString(new Date());
   const timeZone =
     Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
@@ -95,13 +145,49 @@ export function TaskApp({
     [actions, snapshot.tasks, timeZone, today],
   );
 
-  const visibleTasks = useMemo(
+  const selectedProject = snapshot.projects.find(
+    ({ project }) => project.id === selectedProjectId,
+  )?.project;
+
+  const projectTaskCounts = useMemo(() => {
+    const countsByProject = new Map<string, number>();
+    snapshot.tasks.forEach(({ task }) => {
+      if (task.projectId) {
+        countsByProject.set(
+          task.projectId,
+          (countsByProject.get(task.projectId) ?? 0) + 1,
+        );
+      }
+    });
+    return countsByProject;
+  }, [snapshot.tasks]);
+
+  const projectsById = useMemo(
     () =>
-      searchTasks(
-        actions.plannedTasks(filter, today, timeZone),
-        query,
+      new Map(
+        snapshot.projects.map(({ project }) => [project.id, project]),
       ),
-    [actions, filter, query, snapshot.tasks, timeZone, today],
+    [snapshot.projects],
+  );
+
+  const visibleTasks = useMemo(
+    () => {
+      const candidates = selectedProjectId
+        ? snapshot.tasks.filter(
+            ({ task }) => task.projectId === selectedProjectId,
+          )
+        : actions.plannedTasks(filter, today, timeZone);
+      return searchTasks(candidates, query);
+    },
+    [
+      actions,
+      filter,
+      query,
+      selectedProjectId,
+      snapshot.tasks,
+      timeZone,
+      today,
+    ],
   );
 
   const clearableCompletedCount = snapshot.tasks.filter(
@@ -118,7 +204,7 @@ export function TaskApp({
         values.dueDate,
         values.dueAt,
         values.isCompleted,
-        editor.task.projectId,
+        values.projectId,
       );
     } else {
       actions.create(
@@ -127,10 +213,46 @@ export function TaskApp({
         values.priority,
         values.dueDate,
         values.dueAt,
-        null,
+        values.projectId,
       );
     }
     setEditor(undefined);
+  };
+
+  const saveProject = ({ name, color }: ProjectEditorValues) => {
+    if (projectEditor?.mode === 'edit') {
+      actions.updateProject(projectEditor.item.project.id, name, color);
+    } else {
+      actions.createProject(name, color);
+    }
+    setProjectEditor(undefined);
+  };
+
+  const deleteProject = (item: WebTaskProjectItem) => {
+    const taskCount = projectTaskCounts.get(item.project.id) ?? 0;
+    if (
+      window.confirm(
+        `Delete “${item.project.name}”? ${
+          taskCount === 0
+            ? 'The project will be removed from this device and the server.'
+            : `${taskCount} ${
+                taskCount === 1 ? 'task' : 'tasks'
+              } will move to Inbox.`
+        }`,
+      )
+    ) {
+      actions.deleteProject(item.project.id);
+      setProjectEditor(undefined);
+      if (selectedProjectId === item.project.id) {
+        setSelectedProjectId(undefined);
+        setFilter('inbox');
+      }
+    }
+  };
+
+  const chooseFilter = (value: TaskSmartView) => {
+    setSelectedProjectId(undefined);
+    setFilter(value);
   };
 
   const clearCompleted = () => {
@@ -159,20 +281,127 @@ export function TaskApp({
           </div>
         </div>
 
-        <nav aria-label="Task filters" className="filter-nav">
-          {filters.map(({ value, label }) => (
-            <button
-              aria-current={filter === value ? 'page' : undefined}
-              className={filter === value ? 'filter-button active' : 'filter-button'}
-              key={value}
-              onClick={() => setFilter(value)}
-              type="button"
-            >
-              <span>{label}</span>
-              <span className="filter-count">{counts[value]}</span>
-            </button>
-          ))}
-        </nav>
+        <div className="sidebar-scroll">
+          <nav aria-label="Task filters" className="filter-nav">
+            {filters.map(({ value, label }) => (
+              <button
+                aria-current={
+                  !selectedProjectId && filter === value
+                    ? 'page'
+                    : undefined
+                }
+                className={
+                  !selectedProjectId && filter === value
+                    ? 'filter-button active'
+                    : 'filter-button'
+                }
+                key={value}
+                onClick={() => chooseFilter(value)}
+                type="button"
+              >
+                <span>{label}</span>
+                <span className="filter-count">{counts[value]}</span>
+              </button>
+            ))}
+          </nav>
+
+          <nav aria-label="Projects" className="project-nav">
+            <div className="project-nav-heading">
+              <span>Projects</span>
+              <button
+                aria-label="Create project"
+                className="sidebar-icon-button"
+                disabled={!snapshot.isReady}
+                onClick={() => setProjectEditor({ mode: 'create' })}
+                type="button"
+              >
+                <AddIcon />
+              </button>
+            </div>
+
+            {snapshot.projects.length > 0 ? (
+              <ul className="project-list">
+                {snapshot.projects.map((item) => {
+                  const { project, syncState } = item;
+                  const hasConflict = syncState === 'conflict';
+                  const conflict = snapshot.projectConflicts.find(
+                    (candidate) => candidate.projectId === project.id,
+                  );
+                  return (
+                    <li
+                      className={[
+                        'project-row',
+                        selectedProjectId === project.id ? 'active' : '',
+                        hasConflict ? 'has-conflict' : '',
+                      ].join(' ')}
+                      key={project.id}
+                    >
+                      <button
+                        aria-current={
+                          selectedProjectId === project.id
+                            ? 'page'
+                            : undefined
+                        }
+                        className="project-button"
+                        onClick={() => setSelectedProjectId(project.id)}
+                        type="button"
+                      >
+                        <span
+                          className={`project-dot project-color-${project.color}`}
+                        />
+                        <span className="project-name">{project.name}</span>
+                        <span className="filter-count">
+                          {projectTaskCounts.get(project.id) ?? 0}
+                        </span>
+                      </button>
+                      <button
+                        aria-label={
+                          hasConflict
+                            ? `Resolve ${project.name} conflict`
+                            : `Edit ${project.name}`
+                        }
+                        className="sidebar-icon-button project-action"
+                        onClick={() => {
+                          if (hasConflict && conflict) {
+                            setSelectedProjectConflict(conflict);
+                          } else {
+                            setProjectEditor({ mode: 'edit', item });
+                          }
+                        }}
+                        type="button"
+                      >
+                        {hasConflict ? <WarningIcon /> : <EditIcon />}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="project-nav-empty">
+                Group related tasks without changing the shared workflow.
+              </p>
+            )}
+
+            {snapshot.projectConflicts
+              .filter(
+                (conflict) =>
+                  !snapshot.projects.some(
+                    ({ project }) => project.id === conflict.projectId,
+                  ),
+              )
+              .map((conflict) => (
+                <button
+                  className="detached-project-conflict"
+                  key={conflict.projectId}
+                  onClick={() => setSelectedProjectConflict(conflict)}
+                  type="button"
+                >
+                  <WarningIcon />
+                  Resolve deleted project
+                </button>
+              ))}
+          </nav>
+        </div>
 
         <div className="sidebar-footer">
           <SyncSummary
@@ -191,7 +420,10 @@ export function TaskApp({
         <header className="topbar">
           <div className="page-heading">
             <p className="eyebrow">My workspace</p>
-            <h1>{filters.find(({ value }) => value === filter)?.label}</h1>
+            <h1>
+              {selectedProject?.name ??
+                filters.find(({ value }) => value === filter)?.label}
+            </h1>
           </div>
 
           <div className="topbar-actions">
@@ -257,7 +489,7 @@ export function TaskApp({
             />
           )}
 
-          {snapshot.conflictCount > 0 && (
+          {snapshot.conflicts.length > 0 && (
             <button
               className="conflict-banner"
               onClick={() => setSelectedConflict(snapshot.conflicts[0])}
@@ -268,11 +500,47 @@ export function TaskApp({
               </span>
               <span>
                 <strong>
-                  {snapshot.conflictCount}{' '}
-                  {snapshot.conflictCount === 1 ? 'task needs' : 'tasks need'} your
-                  attention
+                  {snapshot.conflicts.length}{' '}
+                  {snapshot.conflicts.length === 1
+                    ? 'task needs'
+                    : 'tasks need'}{' '}
+                  your attention
                 </strong>
                 <small>Review changes made on multiple devices.</small>
+              </span>
+              <ChevronIcon />
+            </button>
+          )}
+
+          {snapshot.projectConflicts.length > 0 && (
+            <button
+              className="conflict-banner project-conflict-banner"
+              onClick={() =>
+                setSelectedProjectConflict(
+                  selectedProjectId
+                    ? snapshot.projectConflicts.find(
+                        (conflict) =>
+                          conflict.projectId === selectedProjectId,
+                      ) ?? snapshot.projectConflicts[0]
+                    : snapshot.projectConflicts[0],
+                )
+              }
+              type="button"
+            >
+              <span className="warning-symbol">
+                <FolderIcon />
+              </span>
+              <span>
+                <strong>
+                  {snapshot.projectConflicts.length}{' '}
+                  {snapshot.projectConflicts.length === 1
+                    ? 'project needs'
+                    : 'projects need'}{' '}
+                  your attention
+                </strong>
+                <small>
+                  Resolve the project before editing its name or color.
+                </small>
               </span>
               <ChevronIcon />
             </button>
@@ -312,11 +580,20 @@ export function TaskApp({
                       );
                       if (conflict) setSelectedConflict(conflict);
                     }}
+                    project={
+                      item.task.projectId
+                        ? projectsById.get(item.task.projectId)
+                        : undefined
+                    }
                   />
                 ))}
               </ul>
             ) : (
-              <EmptyState hasQuery={Boolean(query.trim())} filter={filter} />
+              <EmptyState
+                hasQuery={Boolean(query.trim())}
+                filter={filter}
+                projectName={selectedProject?.name}
+              />
             )}
           </section>
         </div>
@@ -335,10 +612,41 @@ export function TaskApp({
       {editor && (
         <TaskEditorDialog
           heading={editor.mode === 'create' ? 'Create a task' : 'Edit task'}
+          initialProjectId={
+            editor.mode === 'create' ? selectedProjectId : undefined
+          }
           initialTask={editor.mode === 'edit' ? editor.task : undefined}
           onCancel={() => setEditor(undefined)}
           onSubmit={saveTask}
+          projects={snapshot.projects}
           submitLabel={editor.mode === 'create' ? 'Create task' : 'Save changes'}
+        />
+      )}
+
+      {projectEditor && (
+        <ProjectEditorDialog
+          heading={
+            projectEditor.mode === 'create'
+              ? 'Create a project'
+              : 'Edit project'
+          }
+          initialProject={
+            projectEditor.mode === 'edit'
+              ? projectEditor.item.project
+              : undefined
+          }
+          onCancel={() => setProjectEditor(undefined)}
+          onDelete={
+            projectEditor.mode === 'edit'
+              ? () => deleteProject(projectEditor.item)
+              : undefined
+          }
+          onSubmit={saveProject}
+          submitLabel={
+            projectEditor.mode === 'create'
+              ? 'Create project'
+              : 'Save changes'
+          }
         />
       )}
 
@@ -347,6 +655,15 @@ export function TaskApp({
           actions={actions}
           conflict={selectedConflict}
           onClose={() => setSelectedConflict(undefined)}
+          projects={snapshot.projects}
+        />
+      )}
+
+      {selectedProjectConflict && (
+        <ProjectConflictDialog
+          actions={actions}
+          conflict={selectedProjectConflict}
+          onClose={() => setSelectedProjectConflict(undefined)}
         />
       )}
     </div>
@@ -358,6 +675,7 @@ interface TaskRowProps {
   item: WebTaskItem;
   onEdit(task: WebTask): void;
   onResolve(taskId: string): void;
+  project?: WebTaskProject;
 }
 
 function TaskRow({
@@ -365,6 +683,7 @@ function TaskRow({
   item,
   onEdit,
   onResolve,
+  project,
 }: TaskRowProps) {
   const { task, syncState } = item;
   const hasConflict = syncState === 'conflict';
@@ -417,6 +736,14 @@ function TaskRow({
         </span>
         {task.notes && <span className="task-notes">{task.notes}</span>}
         <span className="task-meta">
+          {project && (
+            <span className="task-project">
+              <span
+                className={`project-dot project-color-${project.color}`}
+              />
+              {project.name}
+            </span>
+          )}
           {dueLabel && (
             <span className={isOverdue(task) ? 'due overdue' : 'due'}>
               {isOverdue(task) ? 'Overdue · ' : 'Due · '}
@@ -536,12 +863,19 @@ function TaskListSkeleton() {
 interface EmptyStateProps {
   filter: TaskSmartView;
   hasQuery: boolean;
+  projectName?: string;
 }
 
-function EmptyState({ filter, hasQuery }: EmptyStateProps) {
+function EmptyState({
+  filter,
+  hasQuery,
+  projectName,
+}: EmptyStateProps) {
   const message = hasQuery
     ? 'Try a different title or note.'
-    : filter === 'completed'
+    : projectName
+      ? `Tasks assigned to ${projectName} will appear here.`
+      : filter === 'completed'
       ? 'Completed tasks will appear here.'
       : filter === 'inbox'
         ? 'Unscheduled tasks will wait here until you plan them.'
@@ -556,7 +890,13 @@ function EmptyState({ filter, hasQuery }: EmptyStateProps) {
       <span>
         <InboxIcon />
       </span>
-      <h3>{hasQuery ? 'No matching tasks' : 'Nothing here yet'}</h3>
+      <h3>
+        {hasQuery
+          ? 'No matching tasks'
+          : projectName
+            ? `${projectName} is ready`
+            : 'Nothing here yet'}
+      </h3>
       <p>{message}</p>
     </div>
   );

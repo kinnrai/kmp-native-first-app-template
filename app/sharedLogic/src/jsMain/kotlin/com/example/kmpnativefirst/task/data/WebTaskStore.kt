@@ -3,6 +3,8 @@ package com.example.kmpnativefirst.task.data
 import com.example.kmpnativefirst.task.Task
 import com.example.kmpnativefirst.task.TaskPlanning
 import com.example.kmpnativefirst.task.TaskPriority
+import com.example.kmpnativefirst.task.TaskProject
+import com.example.kmpnativefirst.task.TaskProjectColor
 import com.example.kmpnativefirst.task.TaskSmartView
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -43,13 +45,21 @@ class WebTaskStore(
                 combine(
                     createdRepository.tasks,
                     createdRepository.conflicts,
+                    createdRepository.projects,
+                    createdRepository.projectConflicts,
                     createdRepository.syncStatus,
-                ) { tasks, conflicts, syncStatus ->
+                ) { tasks, conflicts, projects, projectConflicts, syncStatus ->
                     latestTasks = tasks
                     WebTaskSnapshot(
                         isReady = true,
                         tasks = tasks.map(TaskItem::toWebTaskItem).toTypedArray(),
                         conflicts = conflicts.map(TaskConflict::toWebTaskConflict).toTypedArray(),
+                        projects = projects
+                            .map(TaskProjectItem::toWebTaskProjectItem)
+                            .toTypedArray(),
+                        projectConflicts = projectConflicts
+                            .map(TaskProjectConflict::toWebTaskProjectConflict)
+                            .toTypedArray(),
                         syncPhase = syncStatus.phase.name.lowercase(),
                         pendingCount = syncStatus.pendingCount,
                         conflictCount = syncStatus.conflictCount,
@@ -170,6 +180,53 @@ class WebTaskStore(
         )
     }
 
+    fun createProject(
+        name: String,
+        color: String,
+    ) = runAction {
+        createProject(webTaskProjectDraft(name, color))
+    }
+
+    fun updateProject(
+        projectId: String,
+        name: String,
+        color: String,
+    ) = runAction {
+        updateProject(
+            projectId = projectId,
+            edit = webTaskProjectEdit(name, color),
+        )
+    }
+
+    fun deleteProject(projectId: String) = runAction {
+        deleteProject(projectId)
+    }
+
+    fun keepLocalProject(projectId: String) = runAction {
+        resolveProjectConflict(
+            projectId,
+            TaskProjectConflictResolution.KeepLocal,
+        )
+    }
+
+    fun useRemoteProject(projectId: String) = runAction {
+        resolveProjectConflict(
+            projectId,
+            TaskProjectConflictResolution.UseRemote,
+        )
+    }
+
+    fun mergeProjectConflict(
+        projectId: String,
+        name: String,
+        color: String,
+    ) = runAction {
+        resolveProjectConflict(
+            projectId = projectId,
+            resolution = webTaskProjectMergeResolution(name, color),
+        )
+    }
+
     fun sync() = runAction {
         sync()
     }
@@ -258,6 +315,8 @@ class WebTaskSnapshot internal constructor(
     val isReady: Boolean,
     val tasks: Array<WebTaskItem>,
     val conflicts: Array<WebTaskConflict>,
+    val projects: Array<WebTaskProjectItem>,
+    val projectConflicts: Array<WebTaskProjectConflict>,
     val syncPhase: String,
     val pendingCount: Int,
     val conflictCount: Int,
@@ -298,10 +357,39 @@ class WebTaskConflict internal constructor(
     val detectedAt: String,
 )
 
+@JsExport
+class WebTaskProjectItem internal constructor(
+    val project: WebTaskProject,
+    val syncState: String,
+)
+
+@JsExport
+class WebTaskProject internal constructor(
+    val id: String,
+    val name: String,
+    val color: String,
+    val createdAt: String,
+    val updatedAt: String,
+    val revision: String,
+)
+
+@JsExport
+class WebTaskProjectConflict internal constructor(
+    val projectId: String,
+    val mutationKind: String,
+    val base: WebTaskProject?,
+    val local: WebTaskProject?,
+    val remote: WebTaskProject?,
+    val conflictingFields: Array<String>,
+    val detectedAt: String,
+)
+
 private fun loadingWebTaskSnapshot(): WebTaskSnapshot = WebTaskSnapshot(
     isReady = false,
     tasks = emptyArray(),
     conflicts = emptyArray(),
+    projects = emptyArray(),
+    projectConflicts = emptyArray(),
     syncPhase = TaskSyncPhase.IDLE.name.lowercase(),
     pendingCount = 0,
     conflictCount = 0,
@@ -314,6 +402,8 @@ private fun WebTaskSnapshot.withChanges(
     isReady: Boolean = this.isReady,
     tasks: Array<WebTaskItem> = this.tasks,
     conflicts: Array<WebTaskConflict> = this.conflicts,
+    projects: Array<WebTaskProjectItem> = this.projects,
+    projectConflicts: Array<WebTaskProjectConflict> = this.projectConflicts,
     syncPhase: String = this.syncPhase,
     pendingCount: Int = this.pendingCount,
     conflictCount: Int = this.conflictCount,
@@ -324,6 +414,8 @@ private fun WebTaskSnapshot.withChanges(
     isReady = isReady,
     tasks = tasks,
     conflicts = conflicts,
+    projects = projects,
+    projectConflicts = projectConflicts,
     syncPhase = syncPhase,
     pendingCount = pendingCount,
     conflictCount = conflictCount,
@@ -350,6 +442,26 @@ private fun TaskConflict.toWebTaskConflict(): WebTaskConflict = WebTaskConflict(
     detectedAt = detectedAt.toString(),
 )
 
+internal fun TaskProjectItem.toWebTaskProjectItem(): WebTaskProjectItem =
+    WebTaskProjectItem(
+        project = project.toWebTaskProject(),
+        syncState = syncState.name.lowercase(),
+    )
+
+internal fun TaskProjectConflict.toWebTaskProjectConflict(): WebTaskProjectConflict =
+    WebTaskProjectConflict(
+        projectId = projectId,
+        mutationKind = mutationKind.name.lowercase(),
+        base = base?.toWebTaskProject(),
+        local = local?.toWebTaskProject(),
+        remote = remote?.toWebTaskProject(),
+        conflictingFields = conflictingFields
+            .map { field -> field.name.lowercase() }
+            .sorted()
+            .toTypedArray(),
+        detectedAt = detectedAt.toString(),
+    )
+
 private fun Task.toWebTask(): WebTask = WebTask(
     id = id,
     title = title,
@@ -364,10 +476,48 @@ private fun Task.toWebTask(): WebTask = WebTask(
     revision = revision.toString(),
 )
 
+internal fun TaskProject.toWebTaskProject(): WebTaskProject = WebTaskProject(
+    id = id,
+    name = name,
+    color = color.name.lowercase(),
+    createdAt = createdAt.toString(),
+    updatedAt = updatedAt.toString(),
+    revision = revision.toString(),
+)
+
 private fun String.toTaskPriority(): TaskPriority =
     TaskPriority.entries.firstOrNull { priority ->
         priority.name.equals(this, ignoreCase = true)
     } ?: TaskPriority.NONE
+
+private fun String.toTaskProjectColor(): TaskProjectColor =
+    TaskProjectColor.entries.firstOrNull { color ->
+        color.name.equals(this, ignoreCase = true)
+    } ?: TaskProjectColor.BLUE
+
+internal fun webTaskProjectDraft(
+    name: String,
+    color: String,
+): TaskProjectDraft = TaskProjectDraft(
+    name = name,
+    color = color.toTaskProjectColor(),
+)
+
+internal fun webTaskProjectEdit(
+    name: String,
+    color: String,
+): TaskProjectEdit = TaskProjectEdit(
+    name = name,
+    color = color.toTaskProjectColor(),
+)
+
+internal fun webTaskProjectMergeResolution(
+    name: String,
+    color: String,
+): TaskProjectConflictResolution.Merge =
+    TaskProjectConflictResolution.Merge(
+        webTaskProjectEdit(name, color),
+    )
 
 private fun String?.toInstantOrNull(): Instant? =
     this
@@ -385,5 +535,10 @@ private fun Throwable.toActionMessage(): String = when (this) {
     is InvalidTaskInputException -> "Check the title and notes, then try again."
     is CachedTaskNotFoundException -> "This task is no longer available on this device."
     is UnresolvedTaskConflictException -> "Resolve this task's sync conflict before editing it."
-    else -> message ?: "The task could not be updated."
+    is InvalidTaskProjectInputException -> "Check the project name, then try again."
+    is CachedTaskProjectNotFoundException ->
+        "This project is no longer available on this device."
+    is UnresolvedTaskProjectConflictException ->
+        "Resolve this project's sync conflict before editing it."
+    else -> message ?: "The change could not be saved."
 }

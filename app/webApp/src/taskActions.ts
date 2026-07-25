@@ -34,6 +34,12 @@ export interface TaskActions {
     isCompleted: boolean,
     projectId: string | null | undefined,
   ): void;
+  createProject(name: string, color: string): void;
+  updateProject(projectId: string, name: string, color: string): void;
+  deleteProject(projectId: string): void;
+  keepLocalProject(projectId: string): void;
+  useRemoteProject(projectId: string): void;
+  mergeProjectConflict(projectId: string, name: string, color: string): void;
   plannedTasks(
     view: string,
     today: string,
