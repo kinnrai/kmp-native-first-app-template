@@ -41,6 +41,8 @@ jobs:
         run: >-
           ./gradlew --no-daemon --stacktrace
           :app:androidApp:assembleDebug
+          :app:androidApp:testDebugUnitTest
+          :app:androidApp:lintDebug
           :app:desktopApp:check
           :app:sharedUI:testAndroidHostTest
           :app:sharedLogic:testAndroidHostTest

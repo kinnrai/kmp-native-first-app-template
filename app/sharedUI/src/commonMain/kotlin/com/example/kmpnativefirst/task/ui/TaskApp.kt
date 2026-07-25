@@ -68,6 +68,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -96,9 +97,9 @@ import com.example.kmpnativefirst.task.data.TaskLabelItem
 import com.example.kmpnativefirst.task.data.TaskProjectConflictResolution
 import com.example.kmpnativefirst.task.data.TaskProjectItem
 import com.example.kmpnativefirst.task.data.TaskRepository
-import com.example.kmpnativefirst.task.reminder.TaskReminderScheduler
 import com.example.kmpnativefirst.task.data.TaskSyncPhase
 import com.example.kmpnativefirst.task.data.TaskSyncState
+import com.example.kmpnativefirst.task.reminder.TaskReminderScheduler
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.Res
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.browse
 import kmpnativefirstapptemplate.app.sharedui.generated.resources.cancel
@@ -202,9 +203,11 @@ fun rememberTaskViewModel(
 fun TaskApp(
     viewModel: TaskViewModel,
     modifier: Modifier = Modifier,
+    requestReminderPermission: () -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    val currentReminderPermissionRequest by rememberUpdatedState(requestReminderPermission)
     val notice = state.notice
     val noticeMessage = notice?.content?.message()
     val actions = remember(viewModel) {
@@ -248,6 +251,7 @@ fun TaskApp(
             changeEditorPriority = viewModel::setEditorPriority,
             changeEditorDueDate = viewModel::setEditorDueDate,
             changeEditorReminderAt = viewModel::setEditorReminderAt,
+            requestReminderPermission = { currentReminderPermissionRequest() },
             changeEditorCompleted = viewModel::setEditorCompleted,
             changeEditorLabel = viewModel::setEditorLabel,
             saveEditor = viewModel::saveEditor,
@@ -586,6 +590,7 @@ private fun TaskContentScaffold(
                                 onPriorityChange = actions.changeEditorPriority,
                                 onDueDateChange = actions.changeEditorDueDate,
                                 onReminderChange = actions.changeEditorReminderAt,
+                                onReminderPermissionRequest = actions.requestReminderPermission,
                                 onCompletedChange = actions.changeEditorCompleted,
                                 onLabelChange = actions.changeEditorLabel,
                                 onSave = actions.saveEditor,
@@ -611,6 +616,7 @@ private fun TaskContentScaffold(
                     onPriorityChange = actions.changeEditorPriority,
                     onDueDateChange = actions.changeEditorDueDate,
                     onReminderChange = actions.changeEditorReminderAt,
+                    onReminderPermissionRequest = actions.requestReminderPermission,
                     onCompletedChange = actions.changeEditorCompleted,
                     onLabelChange = actions.changeEditorLabel,
                     onSave = actions.saveEditor,
@@ -1123,6 +1129,7 @@ private fun TaskEditorDialog(
     onPriorityChange: (TaskPriority) -> Unit,
     onDueDateChange: (LocalDate?) -> Unit,
     onReminderChange: (Instant?) -> Unit,
+    onReminderPermissionRequest: () -> Unit,
     onCompletedChange: (Boolean) -> Unit,
     onLabelChange: (String, Boolean) -> Unit,
     onSave: () -> Unit,
@@ -1150,6 +1157,7 @@ private fun TaskEditorDialog(
                 onPriorityChange = onPriorityChange,
                 onDueDateChange = onDueDateChange,
                 onReminderChange = onReminderChange,
+                onReminderPermissionRequest = onReminderPermissionRequest,
                 onCompletedChange = onCompletedChange,
                 onLabelChange = onLabelChange,
                 onSave = onSave,
@@ -1172,6 +1180,7 @@ private fun TaskEditor(
     onPriorityChange: (TaskPriority) -> Unit,
     onDueDateChange: (LocalDate?) -> Unit,
     onReminderChange: (Instant?) -> Unit,
+    onReminderPermissionRequest: () -> Unit,
     onCompletedChange: (Boolean) -> Unit,
     onLabelChange: (String, Boolean) -> Unit,
     onSave: () -> Unit,
@@ -1309,6 +1318,7 @@ private fun TaskEditor(
         TaskReminderEditor(
             editor = editor,
             onReminderChange = onReminderChange,
+            onReminderPermissionRequest = onReminderPermissionRequest,
         )
 
         if (editor.isEditing) {
