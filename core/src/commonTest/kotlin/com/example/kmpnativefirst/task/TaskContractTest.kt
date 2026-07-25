@@ -17,6 +17,48 @@ class TaskContractTest {
 
         assertEquals("Plan the release", input.title)
         assertNull(input.notes)
+        assertEquals(emptyList(), input.labelIds)
+    }
+
+    @Test
+    fun normalizesAndValidatesLabelAssignments() {
+        val firstId = "11111111-1111-4111-8111-111111111111"
+        val secondId = "22222222-2222-4222-8222-222222222222"
+        val input = TaskValidator.normalize(
+            title = "Plan release",
+            notes = null,
+            labelIds = listOf(secondId, firstId, secondId),
+        )
+
+        assertEquals(listOf(firstId, secondId), input.labelIds)
+        assertEquals(
+            listOf(
+                TaskValidationIssue(
+                    TaskField.LABEL_IDS,
+                    TaskValidationCode.INVALID,
+                ),
+            ),
+            TaskValidator.validate(
+                title = "Plan release",
+                notes = null,
+                labelIds = listOf("not-a-uuid"),
+            ),
+        )
+        assertEquals(
+            listOf(
+                TaskValidationIssue(
+                    TaskField.LABEL_IDS,
+                    TaskValidationCode.TOO_MANY,
+                ),
+            ),
+            TaskValidator.validate(
+                title = "Plan release",
+                notes = null,
+                labelIds = (1..TaskConstraints.MAX_LABELS_PER_TASK + 1).map { index ->
+                    "00000000-0000-4000-8000-${index.toString().padStart(12, '0')}"
+                },
+            ),
+        )
     }
 
     @Test
@@ -77,6 +119,7 @@ class TaskContractTest {
             id = "task-1",
             title = "Ship the app",
             projectId = "22222222-2222-4222-8222-222222222222",
+            labelIds = listOf("33333333-3333-4333-8333-333333333333"),
             priority = TaskPriority.HIGH,
             dueDate = LocalDate(2026, 8, 1),
             createdAt = Instant.parse("2026-07-23T10:00:00Z"),
@@ -89,6 +132,7 @@ class TaskContractTest {
 
         assertEquals(task, decoded)
         assertEquals(true, encoded.contains("\"projectId\""))
+        assertEquals(true, encoded.contains("\"labelIds\""))
         assertEquals(true, encoded.contains("\"priority\":\"high\""))
         assertEquals(true, encoded.contains("\"dueDate\":\"2026-08-01\""))
     }

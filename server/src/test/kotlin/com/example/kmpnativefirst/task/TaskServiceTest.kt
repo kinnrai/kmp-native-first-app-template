@@ -176,6 +176,49 @@ class TaskServiceTest {
     }
 
     @Test
+    fun assignsOnlyExistingLabelsAndNormalizesTheirOrder() = runBlocking {
+        val repository = InMemoryTaskRepository()
+        val labelService = TaskLabelService(repository, clock)
+        val service = TaskService(repository, clock)
+        val first = labelService.create(
+            CreateTaskLabelRequest(id = LABEL_ID_1, name = "Focus"),
+        )
+        val second = labelService.create(
+            CreateTaskLabelRequest(id = LABEL_ID_2, name = "Home"),
+        )
+
+        val created = service.create(
+            CreateTaskRequest(
+                id = TASK_ID,
+                title = "Plan release",
+                labelIds = listOf(second.id, first.id, second.id),
+            ),
+        )
+        assertEquals(listOf(first.id, second.id), created.labelIds)
+
+        val exception = assertFailsWith<TaskValidationException> {
+            service.replace(
+                id = created.id,
+                request = ReplaceTaskRequest(
+                    title = created.title,
+                    labelIds = listOf(MISSING_LABEL_ID),
+                    expectedRevision = created.revision,
+                ),
+            )
+        }
+        assertEquals(
+            listOf(
+                TaskValidationIssue(
+                    TaskField.LABEL_IDS,
+                    TaskValidationCode.INVALID,
+                ),
+            ),
+            exception.issues,
+        )
+        assertEquals(listOf(first.id, second.id), service.find(created.id).labelIds)
+    }
+
+    @Test
     fun rejectsDuplicateClientIdAndStaleDelete() = runBlocking {
         val service = taskService()
         val created = service.create(CreateTaskRequest(id = TASK_ID, title = "Original"))
@@ -221,6 +264,9 @@ class TaskServiceTest {
         const val TASK_ID = "11111111-1111-4111-8111-111111111111"
         const val PROJECT_ID = "22222222-2222-4222-8222-222222222222"
         const val MISSING_PROJECT_ID = "33333333-3333-4333-8333-333333333333"
+        const val LABEL_ID_1 = "44444444-4444-4444-8444-444444444444"
+        const val LABEL_ID_2 = "55555555-5555-4555-8555-555555555555"
+        const val MISSING_LABEL_ID = "66666666-6666-4666-8666-666666666666"
     }
 }
 

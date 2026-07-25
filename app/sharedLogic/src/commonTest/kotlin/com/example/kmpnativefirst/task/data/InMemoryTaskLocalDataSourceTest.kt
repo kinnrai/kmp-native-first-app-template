@@ -227,4 +227,95 @@ class InMemoryTaskLocalDataSourceTest {
             restored.nextProjectMutation(deletionsOnly = false)?.operationId,
         )
     }
+
+    @Test
+    fun coalescesLabelCreationAndEditsIntoOneMutation() = runTest {
+        val source = InMemoryTaskLocalDataSource()
+        val label = taskLabel(revision = 0)
+
+        source.applyLabelCreate(label, "create-label", TEST_INSTANT)
+        source.applyLabelUpdate(
+            label.copy(name = "Edited offline"),
+            "edit-label",
+            TEST_INSTANT,
+        )
+
+        val mutation = requireNotNull(
+            source.nextLabelMutation(deletionsOnly = false),
+        )
+        assertEquals(TaskMutationKind.CREATE, mutation.kind)
+        assertNull(mutation.base)
+        assertEquals("Edited offline", mutation.desired?.name)
+        assertEquals(1, source.pendingLabelCount())
+    }
+
+    @Test
+    fun deletingALabelAtomicallyUnassignsItsTasks() = runTest {
+        val label = taskLabel()
+        val assigned = task(labelIds = listOf(label.id, LABEL_ID_2))
+        val source = InMemoryTaskLocalDataSource(
+            initialTasks = listOf(assigned),
+            initialLabels = listOf(label),
+        )
+
+        source.applyLabelDelete(
+            labelId = label.id,
+            operationId = "delete-label",
+            taskOperationId = { "unassign-task" },
+            enqueuedAt = TEST_INSTANT,
+        )
+
+        assertNull(source.findLabel(label.id))
+        assertEquals(listOf(LABEL_ID_2), source.findTask(assigned.id)?.task?.labelIds)
+        assertEquals(TaskMutationKind.UPDATE, source.nextMutation()?.kind)
+        assertEquals(
+            TaskMutationKind.DELETE,
+            source.nextLabelMutation(deletionsOnly = true)?.kind,
+        )
+    }
+
+    @Test
+    fun remoteLabelRemovalUnassignsSyncedTasksWithoutCreatingLocalMutations() = runTest {
+        val label = taskLabel()
+        val assigned = task(labelIds = listOf(label.id, LABEL_ID_2))
+        val source = InMemoryTaskLocalDataSource(
+            initialTasks = listOf(assigned),
+            initialLabels = listOf(label),
+        )
+
+        source.replaceRemoteLabelSnapshot(
+            remoteLabels = emptyList(),
+            taskOperationId = { "must-not-be-used" },
+            changedAt = TEST_INSTANT,
+        )
+
+        assertNull(source.findLabel(label.id))
+        assertEquals(listOf(LABEL_ID_2), source.findTask(assigned.id)?.task?.labelIds)
+        assertNull(source.nextMutation())
+        assertEquals(TaskSyncState.SYNCED, source.findTask(assigned.id)?.syncState)
+    }
+
+    @Test
+    fun restoresPersistedLabelsAndLabelMutations() = runTest {
+        var savedState: TaskLocalState? = null
+        val source = InMemoryTaskLocalDataSource(
+            persistState = { savedState = it },
+        )
+        val label = taskLabel(revision = 0)
+
+        source.applyLabelCreate(label, "create-label", TEST_INSTANT)
+        val restored = InMemoryTaskLocalDataSource(
+            restoredState = requireNotNull(savedState),
+        )
+
+        assertEquals(label, restored.findLabel(label.id)?.label)
+        assertEquals(
+            TaskSyncState.PENDING,
+            restored.findLabel(label.id)?.syncState,
+        )
+        assertEquals(
+            "create-label",
+            restored.nextLabelMutation(deletionsOnly = false)?.operationId,
+        )
+    }
 }

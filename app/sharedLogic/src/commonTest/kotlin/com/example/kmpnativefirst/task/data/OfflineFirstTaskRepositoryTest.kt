@@ -1,6 +1,7 @@
 package com.example.kmpnativefirst.task.data
 
 import com.example.kmpnativefirst.task.TaskPriority
+import com.example.kmpnativefirst.task.TaskLabelColor
 import com.example.kmpnativefirst.task.TaskProjectColor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -17,6 +18,37 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class OfflineFirstTaskRepositoryTest {
+    @Test
+    fun normalizesAssignmentsAndPreservesThemWhenEditingOtherFields() = runTest {
+        val firstLabelId = "40000000-0000-4000-8000-000000000001"
+        val secondLabelId = "40000000-0000-4000-8000-000000000002"
+        val repository = OfflineFirstTaskRepository(
+            local = InMemoryTaskLocalDataSource(
+                initialLabels = listOf(
+                    taskLabel(id = firstLabelId),
+                    taskLabel(id = secondLabelId),
+                ),
+            ),
+            remote = FakeTaskRemoteDataSource(),
+            clock = AdvancingClock(),
+            idGenerator = SequentialIds()::next,
+        )
+        val created = repository.create(
+            TaskDraft(
+                title = "Plan release",
+                labelIds = listOf(secondLabelId, firstLabelId, secondLabelId),
+            ),
+        )
+
+        assertEquals(listOf(firstLabelId, secondLabelId), created.labelIds)
+        val updated = repository.update(
+            taskId = created.id,
+            edit = TaskEdit(title = "Publish release"),
+        )
+
+        assertEquals(listOf(firstLabelId, secondLabelId), updated.labelIds)
+    }
+
     @Test
     fun writesLocallyBeforeAnyNetworkSynchronization() = runTest {
         val remote = FakeTaskRemoteDataSource()
@@ -302,13 +334,24 @@ class OfflineFirstTaskRepositoryTest {
 
     @Test
     fun resolvesAConflictWithAnExplicitlyMergedVersion() = runTest {
-        val base = task(title = "Original", notes = "Base")
+        val labelId = "40000000-0000-4000-8000-000000000001"
+        val base = task(
+            title = "Original",
+            notes = "Base",
+            labelIds = listOf(labelId),
+        )
         val remote = FakeTaskRemoteDataSource(
             listOf(base.copy(title = "Remote", notes = "Remote note", revision = 2)),
         )
         val repository = OfflineFirstTaskRepository(
-            local = InMemoryTaskLocalDataSource(listOf(base)),
+            local = InMemoryTaskLocalDataSource(
+                initialTasks = listOf(base),
+                initialLabels = listOf(taskLabel(id = labelId)),
+            ),
             remote = remote,
+            labelRemote = FakeTaskLabelRemoteDataSource(
+                listOf(taskLabel(id = labelId)),
+            ),
             clock = AdvancingClock(),
             idGenerator = { "operation" },
         )
@@ -334,6 +377,7 @@ class OfflineFirstTaskRepositoryTest {
         val synchronized = repository.tasks.first().single()
         assertEquals("Combined", synchronized.task.title)
         assertEquals("Remote note", synchronized.task.notes)
+        assertEquals(listOf(labelId), synchronized.task.labelIds)
         assertEquals(3, synchronized.task.revision)
         assertEquals(TaskSyncState.SYNCED, synchronized.syncState)
     }
@@ -640,6 +684,147 @@ class OfflineFirstTaskRepositoryTest {
         assertFailsWith<CachedTaskProjectNotFoundException> {
             repository.create(
                 TaskDraft(title = "Orphan", projectId = PROJECT_ID_1),
+            )
+        }
+
+        assertTrue(repository.tasks.first().isEmpty())
+    }
+
+    @Test
+    fun synchronizesLabelsBeforeTasksThatReferenceThem() = runTest {
+        var labelAvailable = false
+        val labelRemote = object : FakeTaskLabelRemoteDataSource() {
+            override suspend fun createLabel(
+                label: com.example.kmpnativefirst.task.TaskLabel,
+            ): com.example.kmpnativefirst.task.TaskLabel =
+                super.createLabel(label).also { labelAvailable = true }
+        }
+        val taskRemote = object : FakeTaskRemoteDataSource() {
+            override suspend fun create(
+                task: com.example.kmpnativefirst.task.Task,
+            ): com.example.kmpnativefirst.task.Task {
+                assertTrue(labelAvailable)
+                return super.create(task)
+            }
+        }
+        val repository = OfflineFirstTaskRepository(
+            local = InMemoryTaskLocalDataSource(),
+            remote = taskRemote,
+            labelRemote = labelRemote,
+            clock = AdvancingClock(),
+            idGenerator = SequentialIds(
+                ArrayDeque(
+                    listOf(
+                        LABEL_ID_1,
+                        "10000000-0000-0000-0000-000000000001",
+                        TASK_ID_1,
+                        "10000000-0000-0000-0000-000000000002",
+                    ),
+                ),
+            )::next,
+        )
+        val label = repository.createLabel(
+            TaskLabelDraft("  Focus  ", TaskLabelColor.PURPLE),
+        )
+        repository.create(
+            TaskDraft(title = "Ship", labelIds = listOf(label.id)),
+        )
+
+        val result = assertIs<TaskSyncResult.Success>(repository.sync())
+
+        assertEquals(2, result.pushedCount)
+        assertEquals("Focus", repository.labels.first().single().label.name)
+        assertEquals(TaskSyncState.SYNCED, repository.labels.first().single().syncState)
+        assertEquals(
+            listOf(label.id),
+            repository.tasks.first().single().task.labelIds,
+        )
+        assertEquals(0, repository.syncStatus.value.pendingCount)
+    }
+
+    @Test
+    fun deletesALabelOnlyAfterUnassigningItsTasks() = runTest {
+        val label = taskLabel()
+        val assigned = task(labelIds = listOf(label.id))
+        val taskRemote = FakeTaskRemoteDataSource(listOf(assigned))
+        val labelRemote = FakeTaskLabelRemoteDataSource(listOf(label))
+        val repository = OfflineFirstTaskRepository(
+            local = InMemoryTaskLocalDataSource(
+                initialTasks = listOf(assigned),
+                initialLabels = listOf(label),
+            ),
+            remote = taskRemote,
+            labelRemote = labelRemote,
+            clock = AdvancingClock(),
+            idGenerator = SequentialIds()::next,
+        )
+
+        repository.deleteLabel(label.id)
+
+        assertTrue(repository.tasks.first().single().task.labelIds.isEmpty())
+        assertTrue(repository.labels.first().isEmpty())
+        assertEquals(2, repository.syncStatus.value.pendingCount)
+
+        val result = assertIs<TaskSyncResult.Success>(repository.sync())
+
+        assertEquals(2, result.pushedCount)
+        assertTrue(requireNotNull(taskRemote.find(assigned.id)).labelIds.isEmpty())
+        assertNull(labelRemote.findLabel(label.id))
+        assertEquals(0, repository.syncStatus.value.pendingCount)
+    }
+
+    @Test
+    fun recordsAndResolvesConcurrentLabelEdits() = runTest {
+        val base = taskLabel(name = "Focus")
+        val remoteLabel = base.copy(name = "Concentration", revision = 2)
+        val repository = OfflineFirstTaskRepository(
+            local = InMemoryTaskLocalDataSource(initialLabels = listOf(base)),
+            remote = FakeTaskRemoteDataSource(),
+            labelRemote = FakeTaskLabelRemoteDataSource(listOf(remoteLabel)),
+            clock = AdvancingClock(),
+            idGenerator = { "10000000-0000-0000-0000-000000000001" },
+        )
+        repository.updateLabel(
+            base.id,
+            base.toEdit().copy(name = "Deep work"),
+        )
+
+        val first = assertIs<TaskSyncResult.Success>(repository.sync())
+
+        assertEquals(1, first.conflictCount)
+        assertEquals(
+            setOf(TaskLabelConflictField.NAME),
+            repository.labelConflicts.first().single().conflictingFields,
+        )
+        assertEquals(
+            TaskSyncState.CONFLICT,
+            repository.labels.first().single().syncState,
+        )
+
+        repository.resolveLabelConflict(
+            base.id,
+            TaskLabelConflictResolution.KeepLocal,
+        )
+        val second = assertIs<TaskSyncResult.Success>(repository.sync())
+
+        assertEquals(1, second.pushedCount)
+        assertEquals("Deep work", repository.labels.first().single().label.name)
+        assertEquals(
+            TaskSyncState.SYNCED,
+            repository.labels.first().single().syncState,
+        )
+    }
+
+    @Test
+    fun rejectsAssignmentToALabelThatIsNotCached() = runTest {
+        val repository = OfflineFirstTaskRepository(
+            local = InMemoryTaskLocalDataSource(),
+            remote = FakeTaskRemoteDataSource(),
+        )
+
+        assertFailsWith<CachedTaskLabelNotFoundException> {
+            repository.create(
+                TaskDraft(title = "Orphan", labelIds = listOf(LABEL_ID_1)),
             )
         }
 

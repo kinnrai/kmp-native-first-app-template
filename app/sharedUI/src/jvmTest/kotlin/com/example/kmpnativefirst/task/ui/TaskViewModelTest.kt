@@ -12,6 +12,11 @@ import com.example.kmpnativefirst.task.data.TaskConflictResolution
 import com.example.kmpnativefirst.task.data.TaskDraft
 import com.example.kmpnativefirst.task.data.TaskEdit
 import com.example.kmpnativefirst.task.data.TaskItem
+import com.example.kmpnativefirst.task.data.TaskLabelConflict
+import com.example.kmpnativefirst.task.data.TaskLabelConflictResolution
+import com.example.kmpnativefirst.task.data.TaskLabelDraft
+import com.example.kmpnativefirst.task.data.TaskLabelEdit
+import com.example.kmpnativefirst.task.data.TaskLabelItem
 import com.example.kmpnativefirst.task.data.TaskMutationKind
 import com.example.kmpnativefirst.task.data.TaskProjectConflict
 import com.example.kmpnativefirst.task.data.TaskProjectConflictField
@@ -410,6 +415,9 @@ private class FakeTaskRepository(
     private val mutableProjectConflicts = MutableStateFlow(initialProjectConflicts)
     override val projectConflicts: StateFlow<List<TaskProjectConflict>> =
         mutableProjectConflicts.asStateFlow()
+    override val labels = MutableStateFlow<List<TaskLabelItem>>(emptyList())
+    override val labelConflicts =
+        MutableStateFlow<List<TaskLabelConflict>>(emptyList())
 
     private val mutableSyncStatus = MutableStateFlow(TaskSyncStatus())
     override val syncStatus: StateFlow<TaskSyncStatus> = mutableSyncStatus.asStateFlow()
@@ -424,6 +432,7 @@ private class FakeTaskRepository(
             title = draft.title,
             notes = draft.notes,
             projectId = draft.projectId,
+            labelIds = draft.labelIds,
             priority = draft.priority,
             dueDate = draft.dueDate,
             dueAt = draft.dueAt,
@@ -438,6 +447,7 @@ private class FakeTaskRepository(
             title = edit.title,
             notes = edit.notes,
             projectId = edit.projectId,
+            labelIds = edit.labelIds ?: current.task.labelIds,
             priority = edit.priority,
             dueDate = edit.dueDate,
             dueAt = edit.dueAt,
@@ -462,6 +472,7 @@ private class FakeTaskRepository(
                 title = current.title,
                 notes = current.notes,
                 projectId = current.projectId,
+                labelIds = current.labelIds,
                 priority = current.priority,
                 dueDate = current.dueDate,
                 dueAt = current.dueAt,
@@ -584,6 +595,22 @@ private class FakeTaskRepository(
         }
     }
 
+    override suspend fun createLabel(draft: TaskLabelDraft) =
+        error("Label operations are outside this task view-model test.")
+
+    override suspend fun updateLabel(
+        labelId: String,
+        edit: TaskLabelEdit,
+    ) = error("Label operations are outside this task view-model test.")
+
+    override suspend fun deleteLabel(labelId: String) =
+        error("Label operations are outside this task view-model test.")
+
+    override suspend fun resolveLabelConflict(
+        labelId: String,
+        resolution: TaskLabelConflictResolution,
+    ) = error("Label operations are outside this task view-model test.")
+
     override suspend fun sync(): TaskSyncResult {
         syncCalls += 1
         mutableSyncStatus.value = TaskSyncStatus(phase = TaskSyncPhase.SYNCING)
@@ -629,6 +656,7 @@ private fun task(
     title: String,
     notes: String? = null,
     projectId: String? = null,
+    labelIds: List<String> = emptyList(),
     priority: TaskPriority = TaskPriority.NONE,
     dueDate: LocalDate? = null,
     dueAt: Instant? = null,
@@ -638,6 +666,7 @@ private fun task(
     title = title,
     notes = notes,
     projectId = projectId,
+    labelIds = labelIds,
     priority = priority,
     dueDate = dueDate,
     dueAt = dueAt,

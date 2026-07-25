@@ -1,6 +1,7 @@
 package com.example.kmpnativefirst.task.data
 
 import com.example.kmpnativefirst.task.Task
+import com.example.kmpnativefirst.task.TaskLabel
 import com.example.kmpnativefirst.task.TaskProject
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
@@ -20,6 +21,12 @@ interface TaskRepository {
 
     @HiddenFromObjC
     val projectConflicts: Flow<List<TaskProjectConflict>>
+
+    @HiddenFromObjC
+    val labels: Flow<List<TaskLabelItem>>
+
+    @HiddenFromObjC
+    val labelConflicts: Flow<List<TaskLabelConflict>>
 
     @HiddenFromObjC
     val syncStatus: StateFlow<TaskSyncStatus>
@@ -64,6 +71,24 @@ interface TaskRepository {
     suspend fun resolveProjectConflict(
         projectId: String,
         resolution: TaskProjectConflictResolution,
+    )
+
+    @Throws(Exception::class)
+    suspend fun createLabel(draft: TaskLabelDraft): TaskLabel
+
+    @Throws(Exception::class)
+    suspend fun updateLabel(
+        labelId: String,
+        edit: TaskLabelEdit,
+    ): TaskLabel
+
+    @Throws(Exception::class)
+    suspend fun deleteLabel(labelId: String)
+
+    @Throws(Exception::class)
+    suspend fun resolveLabelConflict(
+        labelId: String,
+        resolution: TaskLabelConflictResolution,
     )
 
     @Throws(Exception::class)

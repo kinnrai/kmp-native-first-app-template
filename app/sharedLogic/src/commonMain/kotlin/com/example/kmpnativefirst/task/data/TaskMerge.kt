@@ -36,6 +36,11 @@ internal object TaskMerge {
             remote = remote.projectId,
             conflicts = conflicts,
         )
+        val labelIds = mergeMembershipSet(
+            base = base.labelIds,
+            local = local.labelIds,
+            remote = remote.labelIds,
+        )
         val priority = mergeValue(
             field = TaskConflictField.PRIORITY,
             base = base.priority,
@@ -71,6 +76,7 @@ internal object TaskMerge {
                     title = title,
                     notes = notes,
                     projectId = projectId,
+                    labelIds = labelIds,
                     priority = priority,
                     dueDate = dueDate,
                     dueAt = dueAt,
@@ -90,6 +96,7 @@ internal object TaskMerge {
         first.title == second.title &&
             first.notes == second.notes &&
             first.projectId == second.projectId &&
+            first.labelIds == second.labelIds &&
             first.priority == second.priority &&
             first.dueDate == second.dueDate &&
             first.dueAt == second.dueAt &&
@@ -109,5 +116,18 @@ internal object TaskMerge {
             conflicts += field
             local
         }
+    }
+
+    private fun <T : Comparable<T>> mergeMembershipSet(
+        base: Collection<T>,
+        local: Collection<T>,
+        remote: Collection<T>,
+    ): List<T> {
+        val baseSet = base.toSet()
+        val localSet = local.toSet()
+        val remoteSet = remote.toSet()
+        val additions = (localSet - baseSet) + (remoteSet - baseSet)
+        val removals = (baseSet - localSet) + (baseSet - remoteSet)
+        return ((baseSet + additions) - removals).sorted()
     }
 }

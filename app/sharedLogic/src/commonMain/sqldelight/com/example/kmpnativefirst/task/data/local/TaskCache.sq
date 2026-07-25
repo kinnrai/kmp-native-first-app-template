@@ -13,7 +13,8 @@ CREATE TABLE cachedTask (
     syncState TEXT NOT NULL,
     isDeleted INTEGER AS Boolean NOT NULL,
     dueDate TEXT,
-    projectId TEXT
+    projectId TEXT,
+    labelIdsJson TEXT NOT NULL DEFAULT '[]'
 );
 
 CREATE TABLE taskOutbox (
@@ -71,6 +72,39 @@ CREATE TABLE taskProjectConflict (
     detectedAtEpochMillis INTEGER NOT NULL
 );
 
+CREATE TABLE cachedTaskLabel (
+    id TEXT NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL,
+    color TEXT NOT NULL,
+    createdAtEpochMillis INTEGER NOT NULL,
+    updatedAtEpochMillis INTEGER NOT NULL,
+    revision INTEGER NOT NULL,
+    syncState TEXT NOT NULL,
+    isDeleted INTEGER AS Boolean NOT NULL
+);
+
+CREATE TABLE taskLabelOutbox (
+    operationId TEXT NOT NULL PRIMARY KEY,
+    labelId TEXT NOT NULL UNIQUE,
+    kind TEXT NOT NULL,
+    baseJson TEXT,
+    desiredJson TEXT,
+    enqueuedAtEpochMillis INTEGER NOT NULL
+);
+
+CREATE INDEX taskLabelOutbox_enqueuedAt
+ON taskLabelOutbox(enqueuedAtEpochMillis);
+
+CREATE TABLE taskLabelConflict (
+    labelId TEXT NOT NULL PRIMARY KEY,
+    kind TEXT NOT NULL,
+    baseJson TEXT,
+    localJson TEXT,
+    remoteJson TEXT,
+    fields TEXT NOT NULL,
+    detectedAtEpochMillis INTEGER NOT NULL
+);
+
 selectVisibleTasks:
 SELECT *
 FROM cachedTask
@@ -105,9 +139,10 @@ INSERT OR REPLACE INTO cachedTask(
     syncState,
     isDeleted,
     dueDate,
-    projectId
+    projectId,
+    labelIdsJson
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 deleteTaskById:
 DELETE FROM cachedTask
@@ -289,3 +324,107 @@ VALUES (?, ?, ?, ?, ?, ?, ?);
 deleteProjectConflictByProjectId:
 DELETE FROM taskProjectConflict
 WHERE projectId = :projectId;
+
+selectVisibleLabels:
+SELECT *
+FROM cachedTaskLabel
+WHERE isDeleted = 0
+ORDER BY name COLLATE NOCASE ASC;
+
+selectAllLabels:
+SELECT *
+FROM cachedTaskLabel;
+
+selectLabelById:
+SELECT *
+FROM cachedTaskLabel
+WHERE id = :id;
+
+upsertLabel:
+INSERT OR REPLACE INTO cachedTaskLabel(
+    id,
+    name,
+    color,
+    createdAtEpochMillis,
+    updatedAtEpochMillis,
+    revision,
+    syncState,
+    isDeleted
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+deleteLabelById:
+DELETE FROM cachedTaskLabel
+WHERE id = :id;
+
+selectNextLabelUpsertOutbox:
+SELECT *
+FROM taskLabelOutbox
+WHERE kind != 'DELETE'
+ORDER BY enqueuedAtEpochMillis ASC, operationId ASC
+LIMIT 1;
+
+selectNextLabelDeleteOutbox:
+SELECT *
+FROM taskLabelOutbox
+WHERE kind = 'DELETE'
+ORDER BY enqueuedAtEpochMillis ASC, operationId ASC
+LIMIT 1;
+
+selectAllLabelOutbox:
+SELECT *
+FROM taskLabelOutbox;
+
+countLabelOutbox:
+SELECT COUNT(*)
+FROM taskLabelOutbox;
+
+selectLabelOutboxByLabelId:
+SELECT *
+FROM taskLabelOutbox
+WHERE labelId = :labelId;
+
+upsertLabelOutbox:
+INSERT OR REPLACE INTO taskLabelOutbox(
+    operationId,
+    labelId,
+    kind,
+    baseJson,
+    desiredJson,
+    enqueuedAtEpochMillis
+)
+VALUES (?, ?, ?, ?, ?, ?);
+
+deleteLabelOutboxByLabelId:
+DELETE FROM taskLabelOutbox
+WHERE labelId = :labelId;
+
+selectLabelConflicts:
+SELECT *
+FROM taskLabelConflict
+ORDER BY detectedAtEpochMillis DESC;
+
+countLabelConflicts:
+SELECT COUNT(*)
+FROM taskLabelConflict;
+
+selectLabelConflictByLabelId:
+SELECT *
+FROM taskLabelConflict
+WHERE labelId = :labelId;
+
+upsertLabelConflict:
+INSERT OR REPLACE INTO taskLabelConflict(
+    labelId,
+    kind,
+    baseJson,
+    localJson,
+    remoteJson,
+    fields,
+    detectedAtEpochMillis
+)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
+deleteLabelConflictByLabelId:
+DELETE FROM taskLabelConflict
+WHERE labelId = :labelId;

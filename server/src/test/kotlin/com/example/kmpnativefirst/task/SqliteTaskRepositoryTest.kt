@@ -188,6 +188,86 @@ class SqliteTaskRepositoryTest {
         )
     }
 
+    @Test
+    fun persistsLabelsAssignmentsAndAppliesRevisionChecks() = runBlocking {
+        val databaseFile = Files.createTempDirectory("label-repository-test")
+            .resolve("tasks.db")
+        val jdbcUrl = "jdbc:sqlite:$databaseFile"
+        val repository = SqliteTaskRepository.open(jdbcUrl)
+        val original = TaskLabel(
+            id = "label-1",
+            name = "Focus",
+            color = TaskLabelColor.PURPLE,
+            createdAt = Instant.parse("2026-07-23T10:00:00Z"),
+            updatedAt = Instant.parse("2026-07-23T10:00:00Z"),
+            revision = 1,
+        )
+        assertEquals(
+            TaskLabelInsertResult.Inserted(original),
+            repository.insertLabel(original),
+        )
+        assertEquals(
+            TaskInsertResult.InvalidLabels,
+            repository.insert(
+                task(id = "invalid-label").copy(labelIds = listOf("missing-label")),
+            ),
+        )
+        assertNull(repository.find("invalid-label"))
+
+        val assignedTask = task().copy(labelIds = listOf(original.id))
+        assertEquals(
+            TaskInsertResult.Inserted(assignedTask),
+            repository.insert(assignedTask),
+        )
+        assertEquals(listOf(original.id), repository.find(assignedTask.id)?.labelIds)
+        assertEquals(
+            TaskMutationResult.InvalidLabels,
+            repository.replace(
+                task = assignedTask.copy(
+                    labelIds = listOf("missing-label"),
+                    revision = 2,
+                ),
+                expectedRevision = 1,
+            ),
+        )
+        assertEquals(listOf(original.id), repository.find(assignedTask.id)?.labelIds)
+
+        val reopenedRepository = SqliteTaskRepository.open(jdbcUrl)
+        assertEquals(original, reopenedRepository.findLabel(original.id))
+        assertEquals(listOf(original), reopenedRepository.listLabels())
+        assertEquals(listOf(original.id), reopenedRepository.find(assignedTask.id)?.labelIds)
+
+        val replacement = original.copy(
+            name = "Deep work",
+            revision = 2,
+            updatedAt = Instant.parse("2026-07-23T11:00:00Z"),
+        )
+        assertEquals(
+            TaskLabelMutationResult.Updated(replacement),
+            reopenedRepository.replaceLabel(replacement, expectedRevision = 1),
+        )
+        assertEquals(
+            TaskLabelMutationResult.Conflict,
+            reopenedRepository.replaceLabel(
+                replacement.copy(name = "Stale"),
+                expectedRevision = 1,
+            ),
+        )
+        val deletionTime = Instant.parse("2026-07-23T12:00:00Z")
+        assertEquals(
+            TaskLabelDeleteResult.Deleted(affectedTaskCount = 1),
+            reopenedRepository.deleteLabel(
+                id = original.id,
+                expectedRevision = replacement.revision,
+                affectedTasksUpdatedAt = deletionTime,
+            ),
+        )
+        val detachedTask = requireNotNull(reopenedRepository.find(assignedTask.id))
+        assertEquals(emptyList(), detachedTask.labelIds)
+        assertEquals(2, detachedTask.revision)
+        assertEquals(deletionTime, detachedTask.updatedAt)
+    }
+
     private fun task(
         id: String = "task-1",
         isCompleted: Boolean = false,

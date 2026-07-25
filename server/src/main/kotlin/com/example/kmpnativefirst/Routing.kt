@@ -3,14 +3,25 @@ package com.example.kmpnativefirst
 import com.example.kmpnativefirst.task.ApiErrorResponse
 import com.example.kmpnativefirst.task.ApiFieldIssue
 import com.example.kmpnativefirst.task.CreateTaskRequest
+import com.example.kmpnativefirst.task.CreateTaskLabelRequest
 import com.example.kmpnativefirst.task.CreateTaskProjectRequest
 import com.example.kmpnativefirst.task.ReplaceTaskRequest
+import com.example.kmpnativefirst.task.ReplaceTaskLabelRequest
 import com.example.kmpnativefirst.task.ReplaceTaskProjectRequest
 import com.example.kmpnativefirst.task.TaskApi
 import com.example.kmpnativefirst.task.TaskConflictException
 import com.example.kmpnativefirst.task.TaskConstraints
 import com.example.kmpnativefirst.task.TaskField
 import com.example.kmpnativefirst.task.TaskFilter
+import com.example.kmpnativefirst.task.TaskLabelApi
+import com.example.kmpnativefirst.task.TaskLabelApiErrorResponse
+import com.example.kmpnativefirst.task.TaskLabelApiFieldIssue
+import com.example.kmpnativefirst.task.TaskLabelConflictException
+import com.example.kmpnativefirst.task.TaskLabelConstraints
+import com.example.kmpnativefirst.task.TaskLabelField
+import com.example.kmpnativefirst.task.TaskLabelNotFoundException
+import com.example.kmpnativefirst.task.TaskLabelService
+import com.example.kmpnativefirst.task.TaskLabelValidationException
 import com.example.kmpnativefirst.task.TaskNotFoundException
 import com.example.kmpnativefirst.task.TaskProjectApi
 import com.example.kmpnativefirst.task.TaskProjectApiErrorResponse
@@ -50,6 +61,7 @@ import kotlinx.serialization.json.Json
 fun Application.configureApplication(
     taskService: TaskService,
     taskProjectService: TaskProjectService,
+    taskLabelService: TaskLabelService,
 ) {
     install(ContentNegotiation) {
         json(
@@ -125,6 +137,40 @@ fun Application.configureApplication(
                 message = TaskProjectApiErrorResponse(
                     code = "project_conflict",
                     message = "Project '${cause.projectId}' has changed. Refresh and try again.",
+                ),
+            )
+        }
+        exception<TaskLabelValidationException> { call, cause ->
+            call.respond(
+                status = HttpStatusCode.BadRequest,
+                message = TaskLabelApiErrorResponse(
+                    code = "validation_failed",
+                    message = "One or more label fields are invalid.",
+                    issues = cause.issues.map { issue ->
+                        TaskLabelApiFieldIssue(
+                            field = issue.field,
+                            code = issue.code,
+                            message = labelValidationMessage(issue.field, issue.code),
+                        )
+                    },
+                ),
+            )
+        }
+        exception<TaskLabelNotFoundException> { call, cause ->
+            call.respond(
+                status = HttpStatusCode.NotFound,
+                message = TaskLabelApiErrorResponse(
+                    code = "label_not_found",
+                    message = "Label '${cause.labelId}' was not found.",
+                ),
+            )
+        }
+        exception<TaskLabelConflictException> { call, cause ->
+            call.respond(
+                status = HttpStatusCode.Conflict,
+                message = TaskLabelApiErrorResponse(
+                    code = "label_conflict",
+                    message = "Label '${cause.labelId}' has changed. Refresh and try again.",
                 ),
             )
         }
@@ -219,6 +265,39 @@ fun Application.configureApplication(
                 call.respond(HttpStatusCode.NoContent)
             }
         }
+        route(TaskLabelApi.BASE_PATH) {
+            get {
+                call.respond(taskLabelService.list())
+            }
+            get("/{id}") {
+                call.respond(taskLabelService.find(call.pathId("label")))
+            }
+            post {
+                val label = taskLabelService.create(
+                    call.receive<CreateTaskLabelRequest>(),
+                )
+                call.response.header(
+                    HttpHeaders.Location,
+                    "${TaskLabelApi.BASE_PATH}/${label.id}",
+                )
+                call.respond(HttpStatusCode.Created, label)
+            }
+            put("/{id}") {
+                call.respond(
+                    taskLabelService.replace(
+                        id = call.pathId("label"),
+                        request = call.receive<ReplaceTaskLabelRequest>(),
+                    ),
+                )
+            }
+            delete("/{id}") {
+                taskLabelService.delete(
+                    id = call.pathId("label"),
+                    expectedRevision = call.expectedRevision(),
+                )
+                call.respond(HttpStatusCode.NoContent)
+            }
+        }
     }
 }
 
@@ -260,10 +339,29 @@ private fun validationMessage(
         "Notes must be ${TaskConstraints.MAX_NOTES_LENGTH} characters or fewer."
     TaskField.PROJECT_ID to TaskValidationCode.INVALID ->
         "Project ID must reference an existing project."
+    TaskField.LABEL_IDS to TaskValidationCode.INVALID ->
+        "Label IDs must reference existing labels."
+    TaskField.LABEL_IDS to TaskValidationCode.TOO_MANY ->
+        "A task can have at most ${TaskConstraints.MAX_LABELS_PER_TASK} labels."
     TaskField.DUE_DATE to TaskValidationCode.INVALID,
     TaskField.DUE_AT to TaskValidationCode.INVALID,
     -> "Due date and due time cannot both be set."
     TaskField.EXPECTED_REVISION to TaskValidationCode.INVALID ->
+        "Expected revision must be at least 1."
+    else -> "The value is invalid."
+}
+
+private fun labelValidationMessage(
+    field: TaskLabelField,
+    code: TaskValidationCode,
+): String = when (field to code) {
+    TaskLabelField.ID to TaskValidationCode.INVALID ->
+        "ID must be a UUID."
+    TaskLabelField.NAME to TaskValidationCode.REQUIRED ->
+        "Name must not be blank."
+    TaskLabelField.NAME to TaskValidationCode.TOO_LONG ->
+        "Name must be ${TaskLabelConstraints.MAX_NAME_LENGTH} characters or fewer."
+    TaskLabelField.EXPECTED_REVISION to TaskValidationCode.INVALID ->
         "Expected revision must be at least 1."
     else -> "The value is invalid."
 }

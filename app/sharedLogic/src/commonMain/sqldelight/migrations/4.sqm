@@ -1,0 +1,2 @@
+ALTER TABLE cachedTask
+ADD COLUMN labelIdsJson TEXT NOT NULL DEFAULT '[]';
