@@ -50,9 +50,13 @@ struct ContentView: View {
   @State private var isConfirmingClearCompleted = false
 
   var body: some View {
+    observedContent(presentedContent(navigationContent))
+  }
+
+  private var navigationContent: some View {
     @Bindable var commands = commands
 
-    NavigationSplitView {
+    return NavigationSplitView {
       sidebar(selection: $commands.collectionSelection)
     } content: {
       List(selection: $commands.selectedTaskID) {
@@ -159,6 +163,12 @@ struct ContentView: View {
         }
       }
     }
+  }
+
+  private func presentedContent<Content: View>(
+    _ content: Content
+  ) -> some View {
+    content
     .sheet(item: $taskEditor) { presentation in
       TaskEditorView(presentation: presentation) { draft in
         saveTask(presentation, draft: draft)
@@ -215,6 +225,12 @@ struct ContentView: View {
     } message: {
       Text(store.presentedError?.message ?? "")
     }
+  }
+
+  private func observedContent<Content: View>(
+    _ content: Content
+  ) -> some View {
+    content
     .onChange(of: commands.newTaskRequest) {
       presentNewTask()
     }
