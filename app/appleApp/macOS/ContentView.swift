@@ -98,32 +98,7 @@ struct ContentView: View {
           .listRowBackground(Color.clear)
         } else {
           ForEach(visibleTasks) { task in
-            TaskRow(
-              task: task,
-              project: task.projectID.flatMap {
-                store.displayedProject(id: $0)
-              }
-            ) {
-              _Concurrency.Task {
-                await store.toggleCompleted(taskID: task.id)
-              }
-            }
-            .tag(task.id)
-            .contextMenu {
-              Button(task.isCompleted ? "Mark Active" : "Complete") {
-                _Concurrency.Task {
-                  await store.toggleCompleted(taskID: task.id)
-                }
-              }
-              .disabled(task.syncState == .conflict)
-
-              Button("Delete", role: .destructive) {
-                _Concurrency.Task {
-                  await store.delete(taskID: task.id)
-                }
-              }
-              .disabled(task.syncState == .conflict)
-            }
+            taskRow(task)
           }
         }
       }
@@ -357,6 +332,35 @@ struct ContentView: View {
 
   private var visibleTasks: [TaskRecord] {
     store.filteredTasks(selection: selectedCollection, searchText: searchText)
+  }
+
+  private func taskRow(_ task: TaskRecord) -> some View {
+    TaskRow(
+      task: task,
+      project: task.projectID.flatMap {
+        store.displayedProject(id: $0)
+      }
+    ) {
+      _Concurrency.Task {
+        await store.toggleCompleted(taskID: task.id)
+      }
+    }
+    .tag(task.id)
+    .contextMenu {
+      Button(task.isCompleted ? "Mark Active" : "Complete") {
+        _Concurrency.Task {
+          await store.toggleCompleted(taskID: task.id)
+        }
+      }
+      .disabled(task.syncState == .conflict)
+
+      Button("Delete", role: .destructive) {
+        _Concurrency.Task {
+          await store.delete(taskID: task.id)
+        }
+      }
+      .disabled(task.syncState == .conflict)
+    }
   }
 
   private func presentNewTask() {
